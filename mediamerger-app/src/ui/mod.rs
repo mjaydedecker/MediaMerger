@@ -1,6 +1,7 @@
 mod extras;
 mod file_pickers;
 mod offset_panel;
+mod output_log;
 mod track_table;
 
 use crate::state::{AppState, Message};
@@ -13,6 +14,7 @@ pub fn view(state: &AppState) -> Element<Message> {
         track_table::view(state),
         offset_panel::view(state),
         extras::view(state),
+        output_log::view(state),
     ]
     .spacing(20);
 

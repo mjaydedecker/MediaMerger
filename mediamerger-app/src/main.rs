@@ -6,7 +6,7 @@ mod state;
 mod ui;
 
 fn main() -> iced::Result {
-    application(|| (AppState::default(), Task::none()), update, view)
+    application(|| (AppState::default(), Task::perform(check_binaries(), Message::BinariesChecked)), update, view)
         .title("MediaMerger")
         .window(window::Settings {
             platform_specific: window::settings::PlatformSpecific {
@@ -43,6 +43,25 @@ fn detect_is_dark() -> bool {
 
 fn subscription(_state: &AppState) -> Subscription<Message> {
     time::every(Duration::from_secs(10)).map(|_| Message::RefreshSystemTheme)
+}
+
+async fn check_binaries() -> Vec<&'static str> {
+    tokio::task::spawn_blocking(|| {
+        let mut missing = Vec::new();
+        for bin in ["ffmpeg", "ffprobe", "mkvmerge"] {
+            let found = std::process::Command::new(bin)
+                .arg("--version")
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if !found {
+                missing.push(bin);
+            }
+        }
+        missing
+    })
+    .await
+    .unwrap_or_else(|_| vec!["ffmpeg", "ffprobe", "mkvmerge"])
 }
 
 fn update(state: &mut AppState, message: Message) -> Task<Message> {
@@ -177,7 +196,92 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.tags_b = v;
             Task::none()
         }
+
+        Message::BinariesChecked(missing) => {
+            state.missing_binaries = missing;
+            Task::none()
+        }
+        Message::PickOutput => Task::perform(
+            async {
+                rfd::AsyncFileDialog::new()
+                    .add_filter("Matroska", &["mkv"])
+                    .save_file()
+                    .await
+                    .map(|h| h.path().to_path_buf())
+            },
+            Message::OutputPicked,
+        ),
+        Message::OutputPicked(path) => {
+            state.output_path = path;
+            Task::none()
+        }
+        Message::StartMerge => {
+            let Some(output_path) = state.output_path.clone() else {
+                return Task::none();
+            };
+            let Some(plan) = state.to_merge_plan(output_path) else {
+                return Task::none();
+            };
+            state.merge_progress = Some(0.0);
+            state.log.clear();
+            state.merge_error = None;
+
+            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<state::MuxUiEvent>();
+            std::thread::spawn(move || {
+                let args = mediamerger_core::mux::build_command(&plan);
+                let tx_events = tx.clone();
+                let result = mediamerger_core::mux::run_mux(&args, move |event| {
+                    let mapped = match event {
+                        mediamerger_core::mux::MuxEvent::Progress(p) => state::MuxUiEvent::Progress(p),
+                        mediamerger_core::mux::MuxEvent::Log(l) => state::MuxUiEvent::Log(l),
+                    };
+                    let _ = tx_events.send(mapped);
+                });
+                let _ = tx.send(state::MuxUiEvent::Done(result.map_err(|e| e.to_string())));
+            });
+
+            state.merge_receiver = Some(std::sync::Arc::new(tokio::sync::Mutex::new(rx)));
+            poll_merge_event(state)
+        }
+        Message::MergeEventReceived(event) => match event {
+            Some(state::MuxUiEvent::Progress(p)) => {
+                state.merge_progress = Some(p);
+                poll_merge_event(state)
+            }
+            Some(state::MuxUiEvent::Log(line)) => {
+                state.log.push(line);
+                poll_merge_event(state)
+            }
+            Some(state::MuxUiEvent::Done(Ok(()))) => {
+                state.merge_progress = Some(1.0);
+                state.merge_receiver = None;
+                Task::none()
+            }
+            Some(state::MuxUiEvent::Done(Err(e))) => {
+                state.merge_error = Some(e);
+                state.merge_progress = None;
+                state.merge_receiver = None;
+                Task::none()
+            }
+            None => {
+                state.merge_receiver = None;
+                Task::none()
+            }
+        },
     }
+}
+
+fn poll_merge_event(state: &AppState) -> Task<Message> {
+    let Some(receiver) = state.merge_receiver.clone() else {
+        return Task::none();
+    };
+    Task::perform(
+        async move {
+            let mut rx = receiver.lock().await;
+            rx.recv().await
+        },
+        Message::MergeEventReceived,
+    )
 }
 
 async fn pick_and_probe() -> Result<mediamerger_core::probe::MediaFile, mediamerger_core::error::MergerError> {

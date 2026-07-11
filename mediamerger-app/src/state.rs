@@ -20,6 +20,13 @@ pub enum ChaptersChoice {
 }
 
 #[derive(Debug, Clone)]
+pub enum MuxUiEvent {
+    Progress(f32),
+    Log(String),
+    Done(Result<(), String>),
+}
+
+#[derive(Debug, Clone)]
 pub struct AppState {
     pub file_a: Option<MediaFile>,
     pub file_b: Option<MediaFile>,
@@ -35,6 +42,12 @@ pub struct AppState {
     pub attachments_b: bool,
     pub tags_a: bool,
     pub tags_b: bool,
+    pub output_path: Option<PathBuf>,
+    pub merge_progress: Option<f32>,
+    pub log: Vec<String>,
+    pub merge_error: Option<String>,
+    pub missing_binaries: Vec<&'static str>,
+    pub merge_receiver: Option<std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<MuxUiEvent>>>>,
 }
 
 impl Default for AppState {
@@ -54,6 +67,12 @@ impl Default for AppState {
             attachments_b: false,
             tags_a: false,
             tags_b: false,
+            output_path: None,
+            merge_progress: None,
+            log: Vec::new(),
+            merge_error: None,
+            missing_binaries: Vec::new(),
+            merge_receiver: None,
         }
     }
 }
@@ -80,6 +99,11 @@ pub enum Message {
     ToggleAttachmentsB(bool),
     ToggleTagsA(bool),
     ToggleTagsB(bool),
+    PickOutput,
+    OutputPicked(Option<PathBuf>),
+    StartMerge,
+    MergeEventReceived(Option<MuxUiEvent>),
+    BinariesChecked(Vec<&'static str>),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -262,5 +286,19 @@ mod tests {
         assert_eq!(plan.tracks_from_b[0].track_id, 2);
         assert!(plan.tracks_from_b[0].set_default);
         assert_eq!(plan.offset_secs, 2.0);
+    }
+
+    #[test]
+    fn can_merge_requires_output_path_and_resolvable_plan() {
+        let mut state = AppState::default();
+        assert!(state.to_merge_plan(PathBuf::from("x.mkv")).is_none(), "no files loaded yet");
+
+        state.file_a = Some(media_file("a.mkv", vec![track(0, mediamerger_core::probe::TrackKind::Video)]));
+        state.file_b = Some(media_file("b.mkv", vec![track(1, mediamerger_core::probe::TrackKind::Audio)]));
+        state.tracks_a_ui = vec![TrackUiState { selected: true, ..Default::default() }];
+        state.tracks_b_ui = vec![TrackUiState { selected: true, ..Default::default() }];
+        state.offset = OffsetState::ManualOverride(0.0);
+
+        assert!(state.to_merge_plan(PathBuf::from("x.mkv")).is_some());
     }
 }

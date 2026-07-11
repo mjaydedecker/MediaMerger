@@ -24,6 +24,7 @@ pub struct Palette {
     pub danger_fg: Color,
     pub danger_soft: Color,
     pub wave: Color,
+    pub headerbar: Color,
 }
 
 fn hex_to_rgb(hex: &str) -> (u8, u8, u8) {
@@ -79,6 +80,7 @@ pub fn build(is_dark: bool, accent_hex: &str) -> Palette {
             danger_fg: rgba("#ff7b63", 1.0),
             danger_soft: rgba("#e01b24", 0.22),
             wave: rgba("#ffffff", 0.24),
+            headerbar: rgba("#2e2e2e", 1.0),
         }
     } else {
         Palette {
@@ -105,6 +107,7 @@ pub fn build(is_dark: bool, accent_hex: &str) -> Palette {
             danger_fg: rgba("#c01c28", 1.0),
             danger_soft: rgba("#e01b24", 0.11),
             wave: rgba("#000000", 0.20),
+            headerbar: rgba("#ffffff", 1.0),
         }
     }
 }
@@ -141,5 +144,17 @@ mod tests {
     fn shade_darkens_toward_black_for_negative_amount() {
         let darkened = shade("#3584e4", -1.0);
         assert_eq!(darkened, Color::from_rgb8(0x00, 0x00, 0x00), "amt=-1.0 should fully reach black");
+    }
+
+    #[test]
+    fn dark_palette_headerbar_matches_mockup() {
+        let p = build(true, "#3584e4");
+        assert_eq!(p.headerbar, Color::from_rgb8(0x2e, 0x2e, 0x2e));
+    }
+
+    #[test]
+    fn light_palette_headerbar_matches_mockup() {
+        let p = build(false, "#3584e4");
+        assert_eq!(p.headerbar, Color::from_rgb8(0xff, 0xff, 0xff));
     }
 }

@@ -1,7 +1,7 @@
 use crate::state::{AppState, Message};
 use crate::theme::Palette;
 use crate::ui::icons;
-use iced::widget::{button, column, container, row, text};
+use iced::widget::{button, column, container, row, rule, text};
 use iced::{Element, Length};
 
 pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> {
@@ -58,32 +58,60 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
         }
     };
 
-    let mut col = column![
+    let accent = palette.accent;
+    let accent_text = palette.accent_text;
+    let chip_bg = palette.chip_bg;
+    let faint = palette.faint;
+    let merge_btn_style = move |_theme: &_, status: button::Status| {
+        let (bg, fg) = if merge_enabled { (accent, accent_text) } else { (chip_bg, faint) };
+        let base = button::Style { background: Some(bg.into()), text_color: fg, border: iced::Border { radius: 999.0.into(), ..Default::default() }, ..Default::default() };
+        match status {
+            button::Status::Disabled => button::Style {
+                background: base.background.map(|b| b.scale_alpha(0.5)),
+                text_color: base.text_color.scale_alpha(0.5),
+                ..base
+            },
+            _ => base,
+        }
+    };
+
+    let output_row = column![
+        text("OUTPUT FILE").size(10).color(palette.faint),
         row![
             text(output_label).size(12).color(palette.fg).width(Length::Fill),
             button(row![icons::folder(palette.fg), text("Browse")].spacing(6)).style(btn_style).on_press(Message::PickOutput),
         ]
         .spacing(10),
-        row![
-            text(ready_text).size(12).color(ready_color).width(Length::Fill),
-            button("Merge").style(btn_style).on_press_maybe(merge_press),
-        ]
-        .spacing(10),
     ]
-    .spacing(10);
+    .spacing(5)
+    .width(Length::Fill);
+
+    let merge_column = column![
+        text(ready_text).size(12).color(ready_color),
+        button(row![icons::layers(if merge_enabled { accent_text } else { faint }), text("Merge")].spacing(9))
+            .padding([12, 30])
+            .style(merge_btn_style)
+            .on_press_maybe(merge_press),
+    ]
+    .spacing(7)
+    .align_x(iced::alignment::Horizontal::Right);
+
+    let footer_bg = palette.headerbar;
+    let separator_color = palette.separator;
+    let mut footer = column![row![output_row, merge_column].spacing(16)].spacing(10);
 
     if !state.missing_binaries.is_empty() {
-        col = col.push(row![icons::warning(palette.danger_fg), text(format!("Missing required tools: {}", state.missing_binaries.join(", "))).color(palette.danger_fg)].spacing(8));
+        footer = footer.push(row![icons::warning(palette.danger_fg), text(format!("Missing required tools: {}", state.missing_binaries.join(", "))).color(palette.danger_fg)].spacing(8));
     }
     if let Some(p) = state.merge_progress {
-        col = col.push(text(format!("Progress: {:.0}%", p * 100.0)).color(palette.dim));
+        footer = footer.push(text(format!("Progress: {:.0}%", p * 100.0)).color(palette.dim));
     }
     if let Some(err) = &state.merge_error {
-        col = col.push(text(format!("Merge failed: {err}")).color(palette.danger_fg));
+        footer = footer.push(text(format!("Merge failed: {err}")).color(palette.danger_fg));
     }
 
     let log_toggle_label = if state.log_expanded { "Hide details ▲" } else { "Show details ▼" };
-    col = col.push(button(text(log_toggle_label).size(11).color(palette.dim)).on_press(Message::ToggleLogExpanded));
+    footer = footer.push(button(text(log_toggle_label).size(11).color(palette.dim)).on_press(Message::ToggleLogExpanded));
 
     if state.log_expanded {
         let mut log_col = column![].spacing(2);
@@ -91,8 +119,23 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
             log_col = log_col.push(text(line).size(11).color(palette.faint));
         }
         let view_bg = palette.view;
-        col = col.push(container(log_col).padding(8).style(move |_theme| container::Style { background: Some(view_bg.into()), ..Default::default() }));
+        footer = footer.push(container(log_col).padding(8).style(move |_theme| container::Style { background: Some(view_bg.into()), ..Default::default() }));
     }
 
-    col.into()
+    // iced_core::Border has a single scalar `width` applied to all four
+    // sides (see iced_core::border::Border), so it can't express the
+    // mockup's border-top-only look directly. Follow the same pattern
+    // track_table.rs already uses for a single dividing line: a dedicated
+    // `rule::horizontal` styled with the separator color, stacked above the
+    // footer content instead of a border on the outer container.
+    let top_rule = rule::horizontal(1).style(move |_theme| rule::Style {
+        color: separator_color,
+        radius: 0.0.into(),
+        fill_mode: rule::FillMode::Full,
+        snap: false,
+    });
+
+    container(column![top_rule, container(footer).padding([14, 20])])
+        .style(move |_theme| container::Style { background: Some(footer_bg.into()), ..Default::default() })
+        .into()
 }

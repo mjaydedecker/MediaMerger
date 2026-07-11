@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 mediamerger-core = { path = "../mediamerger-core" }
-iced = { version = "0.14", features = ["tokio"] }
+iced = { version = "0.14", features = ["tokio", "svg"] }
 tokio = { version = "1", features = ["full"] }
 rfd = { version = "0.14", features = ["xdg-portal"] }
 dark-light = "1"

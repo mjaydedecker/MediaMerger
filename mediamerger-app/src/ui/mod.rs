@@ -1,5 +1,6 @@
 mod extras;
 mod file_pickers;
+mod icons;
 mod offset_panel;
 mod output_log;
 mod track_table;

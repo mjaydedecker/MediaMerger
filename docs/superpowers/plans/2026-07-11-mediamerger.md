@@ -2216,6 +2216,14 @@ use crate::state::{AppState, ChaptersChoice, Message};
 use iced::widget::{checkbox, column, radio, row, text};
 use iced::Element;
 
+// Task 10 found that the actually-installed iced 0.14 uses
+// checkbox(is_checked).label(text).on_toggle(closure), not
+// checkbox(label, is_checked) as written below in older-API style — apply
+// the same correction here. Check radio()'s signature against the installed
+// crate too; if it has similarly drifted from the 4-positional-argument form
+// used below, adapt it the same way (verified working code, not guessed API,
+// is the bar — see Task 9/10's notes on checking the resolved crate's docs).
+
 pub fn view(state: &AppState) -> Element<Message> {
     column![
         row![
@@ -2226,13 +2234,13 @@ pub fn view(state: &AppState) -> Element<Message> {
         ]
         .spacing(10),
         row![
-            checkbox("Attachments from A", state.attachments_a).on_toggle(Message::ToggleAttachmentsA),
-            checkbox("Attachments from B", state.attachments_b).on_toggle(Message::ToggleAttachmentsB),
+            checkbox(state.attachments_a).label("Attachments from A").on_toggle(Message::ToggleAttachmentsA),
+            checkbox(state.attachments_b).label("Attachments from B").on_toggle(Message::ToggleAttachmentsB),
         ]
         .spacing(10),
         row![
-            checkbox("Tags from A", state.tags_a).on_toggle(Message::ToggleTagsA),
-            checkbox("Tags from B", state.tags_b).on_toggle(Message::ToggleTagsB),
+            checkbox(state.tags_a).label("Tags from A").on_toggle(Message::ToggleTagsA),
+            checkbox(state.tags_b).label("Tags from B").on_toggle(Message::ToggleTagsB),
         ]
         .spacing(10),
     ]

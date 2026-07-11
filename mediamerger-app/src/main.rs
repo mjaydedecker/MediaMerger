@@ -41,6 +41,22 @@ fn detect_is_dark() -> bool {
         .unwrap_or_else(|| dark_light::detect() == dark_light::Mode::Dark)
 }
 
+// GNOME 47+ exposes a system accent color the same way it exposes
+// light/dark; mirror the existing detect_is_dark defensive pattern (falls
+// back to Adwaita blue on any failure, non-GNOME desktop, or older GNOME
+// without this key).
+fn detect_accent_color() -> String {
+    std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "accent-color"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .as_deref()
+        .and_then(state::parse_accent_name)
+        .unwrap_or("#3584e4")
+        .to_string()
+}
+
 fn subscription(_state: &AppState) -> Subscription<Message> {
     time::every(Duration::from_secs(10)).map(|_| Message::RefreshSystemTheme)
 }
@@ -104,12 +120,17 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
 
         Message::RefreshSystemTheme => Task::perform(
-            async { tokio::task::spawn_blocking(detect_is_dark).await.unwrap_or(false) },
-            Message::SystemThemeDetected,
+            async {
+                tokio::task::spawn_blocking(|| (detect_is_dark(), detect_accent_color())).await.unwrap_or((false, "#3584e4".to_string()))
+            },
+            |(is_dark, accent)| Message::SystemThemeDetected(is_dark, accent),
         ),
-        Message::SystemThemeDetected(is_dark) => {
+        Message::SystemThemeDetected(is_dark, accent) => {
             if state.is_dark != is_dark {
                 state.is_dark = is_dark;
+            }
+            if state.accent_hex != accent {
+                state.accent_hex = accent;
             }
             Task::none()
         }

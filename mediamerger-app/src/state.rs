@@ -19,6 +19,17 @@ pub enum ChaptersChoice {
     None,
 }
 
+pub fn parse_accent_name(output: &str) -> Option<&'static str> {
+    let name = output.trim().trim_matches('\'');
+    match name {
+        "blue" => Some("#3584e4"),
+        "green" => Some("#3a944a"),
+        "purple" => Some("#9141ac"),
+        "orange" => Some("#ed5b00"),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum MuxUiEvent {
     Progress(f32),
@@ -34,6 +45,7 @@ pub struct AppState {
     pub tracks_b_ui: Vec<TrackUiState>,
     pub framerate_error: Option<MergerError>,
     pub is_dark: bool,
+    pub accent_hex: String,
     pub offset: OffsetState,
     pub manual_offset_input: String,
     pub detect_offset_error: Option<String>,
@@ -61,6 +73,7 @@ impl Default for AppState {
             tracks_b_ui: Vec::new(),
             framerate_error: None,
             is_dark: crate::detect_is_dark(),
+            accent_hex: crate::detect_accent_color(),
             offset: OffsetState::NotDetected,
             manual_offset_input: String::new(),
             detect_offset_error: None,
@@ -88,7 +101,7 @@ pub enum Message {
     FileAProbed(Result<MediaFile, MergerError>),
     FileBProbed(Result<MediaFile, MergerError>),
     RefreshSystemTheme,
-    SystemThemeDetected(bool),
+    SystemThemeDetected(bool, String),
     ToggleTrackA(usize),
     ToggleTrackB(usize),
     SetDefaultFlagA(usize, bool),
@@ -355,6 +368,17 @@ mod tests {
         // longer inspects the Consistency verdict that produced it.
         state.offset = OffsetState::ManualOverride(2.5);
         assert_eq!(state.blocking_reason(), None);
+    }
+
+    #[test]
+    fn parse_accent_name_maps_known_gnome_names() {
+        assert_eq!(parse_accent_name("'blue'\n"), Some("#3584e4"));
+        assert_eq!(parse_accent_name("purple"), Some("#9141ac"));
+    }
+
+    #[test]
+    fn parse_accent_name_returns_none_for_unrecognized_value() {
+        assert_eq!(parse_accent_name("'teal'\n"), None);
     }
 
     #[test]

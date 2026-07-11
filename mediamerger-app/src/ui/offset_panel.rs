@@ -23,7 +23,7 @@ pub fn view(state: &AppState) -> Element<Message> {
         OffsetState::ManualOverride(v) => text(format!("manual override: {v:.3}s")).into(),
     };
 
-    column![
+    let mut col = column![
         row![
             button("Detect Offset").on_press(Message::DetectOffset),
             text_input("offset seconds", &state.manual_offset_input)
@@ -32,6 +32,11 @@ pub fn view(state: &AppState) -> Element<Message> {
         .spacing(10),
         status,
     ]
-    .spacing(10)
-    .into()
+    .spacing(10);
+
+    if let Some(err) = &state.detect_offset_error {
+        col = col.push(text(format!("Could not detect offset: {err}")));
+    }
+
+    col.into()
 }

@@ -20,6 +20,7 @@ pub struct AppState {
     pub is_dark: bool,
     pub offset: OffsetState,
     pub manual_offset_input: String,
+    pub detect_offset_error: Option<String>,
 }
 
 impl Default for AppState {
@@ -33,6 +34,7 @@ impl Default for AppState {
             is_dark: crate::detect_is_dark(),
             offset: OffsetState::NotDetected,
             manual_offset_input: String::new(),
+            detect_offset_error: None,
         }
     }
 }

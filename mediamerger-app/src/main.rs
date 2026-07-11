@@ -109,16 +109,20 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
 
         Message::DetectOffset => {
             state.offset = state::OffsetState::Detecting;
+            state.detect_offset_error = None;
             let (Some(file_a), Some(file_b)) = (state.file_a.clone(), state.file_b.clone()) else {
                 state.offset = state::OffsetState::NotDetected;
+                state.detect_offset_error = Some("both files must be loaded before detecting offset".to_string());
                 return Task::none();
             };
             let Some(track_a) = first_audio_track_id(&file_a) else {
                 state.offset = state::OffsetState::NotDetected;
+                state.detect_offset_error = Some("File A has no audio track".to_string());
                 return Task::none();
             };
             let Some(track_b) = first_audio_track_id(&file_b) else {
                 state.offset = state::OffsetState::NotDetected;
+                state.detect_offset_error = Some("File B has no audio track".to_string());
                 return Task::none();
             };
             Task::perform(
@@ -138,7 +142,10 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     state.manual_offset_input = format!("{:.3}", r.offset);
                     state::OffsetState::Detected(r)
                 }
-                Err(_) => state::OffsetState::NotDetected,
+                Err(e) => {
+                    state.detect_offset_error = Some(e.to_string());
+                    state::OffsetState::NotDetected
+                }
             };
             Task::none()
         }

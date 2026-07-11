@@ -30,6 +30,21 @@ pub fn parse_accent_name(output: &str) -> Option<&'static str> {
     }
 }
 
+pub fn format_duration(secs: f64) -> String {
+    let total_secs = secs.round() as u64;
+    let hours = total_secs / 3600;
+    let minutes = (total_secs % 3600) / 60;
+    let seconds = total_secs % 60;
+    format!("{hours}:{minutes:02}:{seconds:02}")
+}
+
+/// Mirrors the `< 3.0` threshold `offset_panel.rs` already uses to flag a
+/// "consistent but low confidence" result - keep both in sync if this ever
+/// changes; it must not become a second, different threshold.
+pub fn confidence_quality_label(confidence: f32) -> &'static str {
+    if confidence >= 3.0 { "high" } else { "low" }
+}
+
 #[derive(Debug, Clone)]
 pub enum MuxUiEvent {
     Progress(f32),
@@ -400,5 +415,28 @@ mod tests {
         state.offset = OffsetState::ManualOverride(0.0);
 
         assert!(state.to_merge_plan(PathBuf::from("x.mkv")).is_some());
+    }
+
+    #[test]
+    fn format_duration_formats_hours_minutes_seconds() {
+        assert_eq!(format_duration(5072.0), "1:24:32");
+    }
+
+    #[test]
+    fn format_duration_pads_minutes_and_seconds() {
+        assert_eq!(format_duration(65.0), "0:01:05");
+    }
+
+    #[test]
+    fn format_duration_handles_over_ten_hours() {
+        assert_eq!(format_duration(37800.0), "10:30:00");
+    }
+
+    #[test]
+    fn confidence_quality_label_matches_existing_low_confidence_threshold() {
+        assert_eq!(confidence_quality_label(8.4), "high");
+        assert_eq!(confidence_quality_label(3.0), "high");
+        assert_eq!(confidence_quality_label(2.99), "low");
+        assert_eq!(confidence_quality_label(2.1), "low");
     }
 }

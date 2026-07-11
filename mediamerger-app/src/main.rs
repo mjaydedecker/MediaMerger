@@ -206,17 +206,46 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 Message::OffsetDetected,
             )
         }
-        Message::OffsetDetected(result) => {
-            state.offset = match result {
-                Ok(r) => {
-                    state.manual_offset_input = format!("{:.3}", r.offset);
-                    state::OffsetState::Detected(r)
-                }
-                Err(e) => {
-                    state.detect_offset_error = Some(e.to_string());
-                    state::OffsetState::NotDetected
-                }
-            };
+        Message::OffsetDetected(result) => match result {
+            Ok(r) => {
+                state.manual_offset_input = format!("{:.3}", r.offset);
+                let (file_a, file_b) = (state.file_a.clone(), state.file_b.clone());
+                let (Some(file_a), Some(file_b)) = (file_a, file_b) else {
+                    state.offset = state::OffsetState::Detected(r);
+                    return Task::none();
+                };
+                let Some(track_a) = first_audio_track_id(&file_a) else {
+                    state.offset = state::OffsetState::Detected(r);
+                    return Task::none();
+                };
+                let Some(track_b) = first_audio_track_id(&file_b) else {
+                    state.offset = state::OffsetState::Detected(r);
+                    return Task::none();
+                };
+                let (start, duration) = (r.early_window_start, r.window_duration);
+                state.offset = state::OffsetState::Detected(r);
+                Task::perform(
+                    async move {
+                        tokio::task::spawn_blocking(move || {
+                            mediamerger_core::offset::extract_waveform(&file_a.path, track_a, &file_b.path, track_b, start, duration, 120)
+                        })
+                        .await
+                        .unwrap_or_else(|e| Err(mediamerger_core::error::MergerError::Probe(e.to_string())))
+                    },
+                    Message::WaveformExtracted,
+                )
+            }
+            Err(e) => {
+                state.detect_offset_error = Some(e.to_string());
+                state.offset = state::OffsetState::NotDetected;
+                Task::none()
+            }
+        },
+        Message::WaveformExtracted(result) => {
+            // A waveform-fetch failure is never surfaced as a user-facing
+            // error - the offset itself already succeeded and is fully
+            // usable without this supplementary visualization.
+            state.waveform = result.ok();
             Task::none()
         }
         Message::ManualOffsetChanged(text) => {

@@ -1,6 +1,6 @@
 use mediamerger_core::error::MergerError;
 use mediamerger_core::mux::{ChapterSource, MergePlan, TrackSelection};
-use mediamerger_core::offset::OffsetResult;
+use mediamerger_core::offset::{OffsetResult, WaveformEnvelope};
 use mediamerger_core::probe::{MediaFile, Track};
 use std::path::PathBuf;
 
@@ -47,6 +47,7 @@ pub struct AppState {
     pub is_dark: bool,
     pub accent_hex: String,
     pub offset: OffsetState,
+    pub waveform: Option<WaveformEnvelope>,
     pub manual_offset_input: String,
     pub detect_offset_error: Option<String>,
     pub chapters_choice: ChaptersChoice,
@@ -75,6 +76,7 @@ impl Default for AppState {
             is_dark: crate::detect_is_dark(),
             accent_hex: crate::detect_accent_color(),
             offset: OffsetState::NotDetected,
+            waveform: None,
             manual_offset_input: String::new(),
             detect_offset_error: None,
             chapters_choice: ChaptersChoice::FileA,
@@ -110,6 +112,7 @@ pub enum Message {
     SetForcedFlagB(usize, bool),
     DetectOffset,
     OffsetDetected(Result<OffsetResult, MergerError>),
+    WaveformExtracted(Result<WaveformEnvelope, MergerError>),
     ManualOffsetChanged(String),
     ChaptersChoiceChanged(ChaptersChoice),
     ToggleAttachmentsA(bool),

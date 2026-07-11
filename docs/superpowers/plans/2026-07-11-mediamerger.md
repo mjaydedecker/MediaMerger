@@ -1798,7 +1798,7 @@ pub enum OffsetState {
 }
 ```
 
-Add fields to `AppState`: `pub offset: OffsetState, pub manual_offset_input: String,` and to its `Default` impl: `offset: OffsetState::NotDetected, manual_offset_input: String::new(),`.
+Add fields to `AppState`: `pub offset: OffsetState, pub manual_offset_input: String, pub detect_offset_error: Option<String>,` and to its `Default` impl: `offset: OffsetState::NotDetected, manual_offset_input: String::new(), detect_offset_error: None,`.
 
 Add new `Message` variants:
 
@@ -1858,21 +1858,27 @@ Expected: PASS once `resolved_offset_secs` is added exactly as above (write it f
 
 - [ ] **Step 3: Wire `DetectOffset`/`OffsetDetected`/`ManualOffsetChanged` into `update`**
 
+A review of the first implementation of this step (Task 11) found that every failure path — no files loaded, no audio track found, or `detect_offset` itself returning `Err` — silently reverted to `OffsetState::NotDetected` with zero visible explanation, indistinguishable from never having clicked "Detect Offset" at all. Add a `detect_offset_error: Option<String>` field to `AppState` (alongside `offset`/`manual_offset_input`; default `None`) and set/clear it on every path below, following the same pattern as the existing `framerate_error` field.
+
 Add to `mediamerger-app/src/main.rs`'s `match message` block:
 
 ```rust
         Message::DetectOffset => {
             state.offset = state::OffsetState::Detecting;
+            state.detect_offset_error = None;
             let (Some(file_a), Some(file_b)) = (state.file_a.clone(), state.file_b.clone()) else {
                 state.offset = state::OffsetState::NotDetected;
+                state.detect_offset_error = Some("both files must be loaded before detecting offset".to_string());
                 return Task::none();
             };
             let Some(track_a) = first_audio_track_id(&file_a) else {
                 state.offset = state::OffsetState::NotDetected;
+                state.detect_offset_error = Some("File A has no audio track".to_string());
                 return Task::none();
             };
             let Some(track_b) = first_audio_track_id(&file_b) else {
                 state.offset = state::OffsetState::NotDetected;
+                state.detect_offset_error = Some("File B has no audio track".to_string());
                 return Task::none();
             };
             Task::perform(
@@ -1892,7 +1898,10 @@ Add to `mediamerger-app/src/main.rs`'s `match message` block:
                     state.manual_offset_input = format!("{:.3}", r.offset);
                     state::OffsetState::Detected(r)
                 }
-                Err(_) => state::OffsetState::NotDetected,
+                Err(e) => {
+                    state.detect_offset_error = Some(e.to_string());
+                    state::OffsetState::NotDetected
+                }
             };
             Task::none()
         }
@@ -1944,7 +1953,7 @@ pub fn view(state: &AppState) -> Element<Message> {
         OffsetState::ManualOverride(v) => text(format!("manual override: {v:.3}s")).into(),
     };
 
-    column![
+    let mut col = column![
         row![
             button("Detect Offset").on_press(Message::DetectOffset),
             text_input("offset seconds", &state.manual_offset_input)
@@ -1953,8 +1962,13 @@ pub fn view(state: &AppState) -> Element<Message> {
         .spacing(10),
         status,
     ]
-    .spacing(10)
-    .into()
+    .spacing(10);
+
+    if let Some(err) = &state.detect_offset_error {
+        col = col.push(text(format!("Could not detect offset: {err}")));
+    }
+
+    col.into()
 }
 ```
 

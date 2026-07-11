@@ -1,4 +1,4 @@
-use crate::state::{AppState, Message, OffsetState};
+use crate::state::{confidence_quality_label, AppState, Message, OffsetState};
 use crate::theme::Palette;
 use crate::ui::icons;
 use iced::widget::{button, column, container, row, text, text_input};
@@ -10,20 +10,52 @@ fn status_banner<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Mess
         OffsetState::NotDetected => text("Offset not detected yet").color(palette.dim).into(),
         OffsetState::Detecting => text("Detecting offset…").color(palette.dim).into(),
         OffsetState::Detected(r) => {
-            let (icon, _color, bg, headline) = match r.consistency {
-                Consistency::Consistent if r.confidence < 3.0 => {
-                    (icons::check(palette.success_fg), palette.success_fg, palette.success_soft, "Aligned (low confidence) — verify before merging")
-                }
-                Consistency::Consistent => (icons::check(palette.success_fg), palette.success_fg, palette.success_soft, "Aligned — ready to merge"),
-                Consistency::Inconsistent => (icons::warning(palette.danger_fg), palette.danger_fg, palette.danger_soft, "Measurements disagree — verify manually"),
-                Consistency::Unverified => (icons::warning(palette.warn_fg), palette.warn_fg, palette.warn_soft, "Unverified (file too short for a second check)"),
+            let (icon, color, bg, headline, detail, pill_label) = match r.consistency {
+                Consistency::Consistent if r.confidence < 3.0 => (
+                    icons::check(palette.success_fg), palette.success_fg, palette.success_soft,
+                    "Aligned (low confidence) — verify before merging".to_string(),
+                    format!("File B's audio starts {:.3}s after File A. Its tracks will be delayed to match.", r.offset),
+                    "Consistent",
+                ),
+                Consistency::Consistent => (
+                    icons::check(palette.success_fg), palette.success_fg, palette.success_soft,
+                    "Aligned — ready to merge".to_string(),
+                    format!("File B's audio starts {:.3}s after File A. Its tracks will be delayed to match.", r.offset),
+                    "Consistent",
+                ),
+                Consistency::Inconsistent => (
+                    icons::warning(palette.danger_fg), palette.danger_fg, palette.danger_soft,
+                    "Measurements disagree — verify manually".to_string(),
+                    format!(
+                        "Early and late probes differ by {:.2}s. Enter a known offset or re-run detection before merging.",
+                        (r.early_offset - r.late_offset).abs()
+                    ),
+                    "Inconsistent",
+                ),
+                Consistency::Unverified => (
+                    icons::warning(palette.warn_fg), palette.warn_fg, palette.warn_soft,
+                    "Unverified (file too short for a second check)".to_string(),
+                    format!("Measured a single offset of {:.3}s - not independently confirmed.", r.offset),
+                    "Unverified",
+                ),
             };
-            let detail = format!(
-                "early {:.3}s · late {:.3}s · confidence {:.1}",
-                r.early_offset, r.late_offset, r.confidence
-            );
+
+            let pill = container(text(pill_label).size(11).color(color))
+                .padding([4, 11])
+                .style(move |_theme| container::Style {
+                    background: None,
+                    border: iced::Border { color, width: 1.0, radius: 999.0.into() },
+                    ..Default::default()
+                });
+
             container(
-                row![icon, column![text(headline).color(palette.fg), text(detail).size(12).color(palette.dim)]].spacing(12),
+                row![
+                    icon,
+                    column![text(headline).color(palette.fg), text(detail).size(12).color(palette.dim)].width(Length::Fill),
+                    pill,
+                ]
+                .spacing(12)
+                .align_y(iced::alignment::Vertical::Center),
             )
             .padding(12)
             .style(move |_theme| container::Style { background: Some(bg.into()), ..Default::default() })
@@ -72,14 +104,36 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
         col = col.push(waveform_bars(envelope, offset, palette));
     }
 
-    col = col.push(
-        row![
-            text("Offset").size(12).color(palette.dim),
-            text_input("0.000", &state.manual_offset_input).on_input(Message::ManualOffsetChanged).width(Length::Fixed(78.0)),
-            button(row![icons::sparkle(palette.accent_fg), text("Detect offset")].spacing(7)).on_press_maybe(detect_offset_press),
-        ]
-        .spacing(12),
-    );
+    let measured_text: Option<Element<Message>> = match &state.offset {
+        OffsetState::Detected(r) if r.consistency != Consistency::Unverified => {
+            let quality = confidence_quality_label(r.confidence);
+            let color = if r.consistency == Consistency::Inconsistent { palette.danger_fg } else { palette.faint };
+            Some(
+                text(format!(
+                    "Measured {:.3}s early · {:.3}s late · confidence {:.1} ({quality})",
+                    r.early_offset, r.late_offset, r.confidence
+                ))
+                .size(12)
+                .color(color)
+                .into(),
+            )
+        }
+        _ => None,
+    };
+
+    let mut offset_row = row![
+        text("Offset").size(12).color(palette.dim),
+        text_input("0.000", &state.manual_offset_input).on_input(Message::ManualOffsetChanged).width(Length::Fixed(78.0)),
+        button(row![icons::sparkle(palette.accent_fg), text("Detect offset")].spacing(7)).on_press_maybe(detect_offset_press),
+    ]
+    .spacing(12);
+
+    offset_row = offset_row.push(iced::widget::space::horizontal());
+    if let Some(measured) = measured_text {
+        offset_row = offset_row.push(measured);
+    }
+
+    col = col.push(offset_row);
 
     if let Some(err) = &state.detect_offset_error {
         col = col.push(row![icons::warning(palette.danger_fg), text(format!("Could not detect offset: {err}")).color(palette.danger_fg)].spacing(8));

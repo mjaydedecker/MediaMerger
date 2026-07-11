@@ -63,8 +63,21 @@ fn file_card<'a>(
             text(label).size(13).color(palette.fg),
             button(row![icons::folder(palette.fg), text("Browse")].spacing(6))
                 .style(move |_theme, status| {
-                    let background = if status == button::Status::Hovered { btn_hover } else { btn_bg };
-                    button::Style { background: Some(background.into()), ..Default::default() }
+                    let base = button::Style { background: Some(btn_bg.into()), ..Default::default() };
+                    match status {
+                        button::Status::Hovered => {
+                            button::Style { background: Some(btn_hover.into()), ..base }
+                        }
+                        // Mirror iced_widget::button's own `disabled()` helper: scale
+                        // both background and text alpha by 0.5 rather than rendering
+                        // disabled buttons identically to enabled ones.
+                        button::Status::Disabled => button::Style {
+                            background: base.background.map(|b| b.scale_alpha(0.5)),
+                            text_color: base.text_color.scale_alpha(0.5),
+                            ..base
+                        },
+                        _ => base,
+                    }
                 })
                 .on_press_maybe(browse_press),
         ]

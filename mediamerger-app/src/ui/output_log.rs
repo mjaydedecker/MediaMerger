@@ -36,8 +36,20 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
     let btn_bg = palette.btn_bg;
     let btn_hover = palette.btn_hover;
     let btn_style = move |_theme: &_, status: button::Status| {
-        let background = if status == button::Status::Hovered { btn_hover } else { btn_bg };
-        button::Style { background: Some(background.into()), ..Default::default() }
+        let base = button::Style { background: Some(btn_bg.into()), ..Default::default() };
+        match status {
+            button::Status::Hovered => button::Style { background: Some(btn_hover.into()), ..base },
+            // Mirror iced_widget::button's own `disabled()` helper: scale both
+            // background and text alpha by 0.5 rather than rendering disabled
+            // buttons (e.g. Merge, before all four merge_enabled conditions are
+            // met) identically to enabled ones.
+            button::Status::Disabled => button::Style {
+                background: base.background.map(|b| b.scale_alpha(0.5)),
+                text_color: base.text_color.scale_alpha(0.5),
+                ..base
+            },
+            _ => base,
+        }
     };
 
     let mut col = column![

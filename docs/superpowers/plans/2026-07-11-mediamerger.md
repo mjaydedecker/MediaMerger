@@ -1654,8 +1654,12 @@ Add to the `match message` block in `mediamerger-app/src/main.rs`:
 
 - [ ] **Step 5: Create `mediamerger-app/src/ui/track_table.rs`**
 
+Note on the `iced` API: `checkbox` in `iced` 0.14 is `checkbox(is_checked: bool) -> Checkbox`, with the label set via a separate `.label(text)` builder method (not `checkbox(label, is_checked)` as in older `iced` versions). Use that form throughout.
+
+Each track row needs its own `selected` checkbox plus two more controls — "Default" and "Forced" — so `SetDefaultFlagA/B`/`SetForcedFlagA/B` (added to `Message` in Step 1) are actually reachable from the UI; without these, those variants and their `update` handling would be permanently dead code.
+
 ```rust
-use crate::state::{AppState, Message};
+use crate::state::{AppState, Message, TrackUiState};
 use iced::widget::{checkbox, column, row, text};
 use iced::Element;
 use mediamerger_core::probe::{MediaFile, Track};
@@ -1668,27 +1672,34 @@ fn track_label(track: &Track) -> String {
 fn track_row<'a>(
     idx: usize,
     track: &'a Track,
-    selected: bool,
+    ui: &'a TrackUiState,
     on_toggle: impl Fn(usize) -> Message + 'a,
+    on_default: impl Fn(usize, bool) -> Message + 'a,
+    on_forced: impl Fn(usize, bool) -> Message + 'a,
 ) -> Element<'a, Message> {
     row![
-        checkbox(track_label(track), selected).on_toggle(move |_| on_toggle(idx)),
+        checkbox(ui.selected).label(track_label(track)).on_toggle(move |_| on_toggle(idx)),
+        checkbox(ui.default_flag).label("Default").on_toggle(move |v| on_default(idx, v)),
+        checkbox(ui.forced_flag).label("Forced").on_toggle(move |v| on_forced(idx, v)),
     ]
+    .spacing(10)
     .into()
 }
 
 fn file_column<'a>(
     file: &'a Option<MediaFile>,
-    ui: &'a [crate::state::TrackUiState],
+    ui: &'a [TrackUiState],
     on_toggle: impl Fn(usize) -> Message + Copy + 'a,
+    on_default: impl Fn(usize, bool) -> Message + Copy + 'a,
+    on_forced: impl Fn(usize, bool) -> Message + Copy + 'a,
 ) -> Element<'a, Message> {
     match file {
         None => text("No file loaded").into(),
         Some(f) => {
             let mut col = column![].spacing(5);
             for (idx, track) in f.tracks.iter().enumerate() {
-                let selected = ui.get(idx).map(|u| u.selected).unwrap_or(false);
-                col = col.push(track_row(idx, track, selected, on_toggle));
+                let row_ui = ui.get(idx).cloned().unwrap_or_default();
+                col = col.push(track_row(idx, track, &row_ui, on_toggle, on_default, on_forced));
             }
             col.into()
         }
@@ -1697,13 +1708,27 @@ fn file_column<'a>(
 
 pub fn view(state: &AppState) -> Element<Message> {
     row![
-        file_column(&state.file_a, &state.tracks_a_ui, Message::ToggleTrackA),
-        file_column(&state.file_b, &state.tracks_b_ui, Message::ToggleTrackB),
+        file_column(
+            &state.file_a,
+            &state.tracks_a_ui,
+            Message::ToggleTrackA,
+            Message::SetDefaultFlagA,
+            Message::SetForcedFlagA,
+        ),
+        file_column(
+            &state.file_b,
+            &state.tracks_b_ui,
+            Message::ToggleTrackB,
+            Message::SetDefaultFlagB,
+            Message::SetForcedFlagB,
+        ),
     ]
     .spacing(30)
     .into()
 }
 ```
+
+`row_ui` is cloned (rather than borrowed) because `ui.get(idx)` returns `Option<&TrackUiState>` but the closures captured by `track_row` need an owned/short-lived value to read `.selected`/`.default_flag`/`.forced_flag` from within the loop without fighting the borrow checker over `ui`'s lifetime across the loop body; `TrackUiState` is small (two bools + one bool), so the clone is cheap. If you find a cleaner borrow-based formulation that compiles, either is fine — the point is that all three checkboxes per row must read live state and dispatch their respective message.
 
 - [ ] **Step 6: Wire the track table into `ui::view`**
 

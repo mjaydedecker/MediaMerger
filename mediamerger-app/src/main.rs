@@ -69,6 +69,43 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+
+        Message::ToggleTrackA(idx) => {
+            if let Some(row) = state.tracks_a_ui.get_mut(idx) {
+                row.selected = !row.selected;
+            }
+            Task::none()
+        }
+        Message::ToggleTrackB(idx) => {
+            if let Some(row) = state.tracks_b_ui.get_mut(idx) {
+                row.selected = !row.selected;
+            }
+            Task::none()
+        }
+        Message::SetDefaultFlagA(idx, value) => {
+            if let Some(row) = state.tracks_a_ui.get_mut(idx) {
+                row.default_flag = value;
+            }
+            Task::none()
+        }
+        Message::SetDefaultFlagB(idx, value) => {
+            if let Some(row) = state.tracks_b_ui.get_mut(idx) {
+                row.default_flag = value;
+            }
+            Task::none()
+        }
+        Message::SetForcedFlagA(idx, value) => {
+            if let Some(row) = state.tracks_a_ui.get_mut(idx) {
+                row.forced_flag = value;
+            }
+            Task::none()
+        }
+        Message::SetForcedFlagB(idx, value) => {
+            if let Some(row) = state.tracks_b_ui.get_mut(idx) {
+                row.forced_flag = value;
+            }
+            Task::none()
+        }
     }
 }
 
@@ -96,8 +133,10 @@ fn apply_probe_result(
     match result {
         Ok(media_file) => {
             if is_file_a {
+                AppState::sync_track_ui_len(&media_file.tracks, &mut state.tracks_a_ui);
                 state.file_a = Some(media_file);
             } else {
+                AppState::sync_track_ui_len(&media_file.tracks, &mut state.tracks_b_ui);
                 state.file_b = Some(media_file);
             }
             state.framerate_error = None;

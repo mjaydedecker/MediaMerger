@@ -3,6 +3,7 @@ use state::{AppState, Message};
 use std::time::Duration;
 
 mod state;
+mod theme;
 mod ui;
 
 fn main() -> iced::Result {
@@ -17,6 +18,7 @@ fn main() -> iced::Result {
         })
         .theme(theme)
         .subscription(subscription)
+        .default_font(iced::Font::with_name("Cantarell"))
         .run()
 }
 

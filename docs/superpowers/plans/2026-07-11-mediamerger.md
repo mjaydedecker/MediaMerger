@@ -2457,6 +2457,15 @@ Add to the `match message` block in `mediamerger-app/src/main.rs`:
             Task::none()
         }
         Message::StartMerge => {
+            // Guard against a double-click (or any repeat dispatch) starting
+            // a second mkvmerge process against the same output path while
+            // the first is still running - two concurrent writers to one
+            // file risks a corrupted/truncated output, and overwriting
+            // merge_receiver would silently orphan the first run's worker
+            // thread and drop its progress/log feed.
+            if state.merge_receiver.is_some() {
+                return Task::none();
+            }
             let Some(output_path) = state.output_path.clone() else {
                 return Task::none();
             };
@@ -2505,6 +2514,12 @@ Add to the `match message` block in `mediamerger-app/src/main.rs`:
                 Task::none()
             }
             None => {
+                // The channel closed without a Done event - the worker
+                // thread panicked or was dropped before it could send one.
+                // Surface this rather than leaving a frozen progress bar
+                // with no explanation.
+                state.merge_error = Some("merge worker terminated unexpectedly".to_string());
+                state.merge_progress = None;
                 state.merge_receiver = None;
                 Task::none()
             }

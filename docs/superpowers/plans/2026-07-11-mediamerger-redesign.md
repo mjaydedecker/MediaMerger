@@ -1766,6 +1766,39 @@ git commit -m "Restore disabled-button dimming lost when wiring btn_bg/btn_hover
 
 ---
 
+## Post-final-review fix: duplicate framerate banner + merge_enabled file-presence gap
+
+The final whole-branch review found two remaining cross-task integration issues:
+
+1. **Duplicate framerate error display.** `mediamerger-app/src/ui/mod.rs` still has the original pre-redesign line rendering `state.framerate_error` as bare red text at the bottom of the whole column — a leftover from before Task 6 added the richer, icon'd `framerate_banner` inside `file_pickers.rs`. Nobody removed the old one when the new one was added, so a framerate mismatch now shows the same message twice: once as a proper banner near the file cards, once as plain text at the very bottom of the window.
+
+2. **`merge_enabled` still doesn't require both files to be loaded**, despite its own comment claiming it mirrors every condition `AppState::to_merge_plan` requires. `to_merge_plan` requires both `file_a` and `file_b` to be `Some`; `merge_enabled` (in `output_log.rs`) checks `blocking_reason`/`selected_count`/`output_path`/`offset_resolved` but never `file_a`/`file_b` presence. Reachable (if narrow) case: load only File A, select one of its tracks, type a manual offset value, pick an output — the UI shows "ready to merge" and enables the button, but `to_merge_plan` still returns `None` and `StartMerge` silently no-ops. Not a crash (the existing guard in `StartMerge` catches it), but the same class of UI-claims-ready-when-it-isn't bug the Task 10 fix was meant to close for good.
+
+**Files:**
+- Modify: `mediamerger-app/src/ui/mod.rs`
+- Modify: `mediamerger-app/src/ui/output_log.rs`
+
+- [ ] **Step 1: Remove the now-redundant framerate banner in `ui/mod.rs`**
+
+Delete the trailing `if let Some(err) = &state.framerate_error { sections = sections.push(...); }` block from `pub fn view` in `mediamerger-app/src/ui/mod.rs` — `file_pickers::view` already renders this via `framerate_banner`, which is the only place it should appear now.
+
+- [ ] **Step 2: Close the file-presence gap in `merge_enabled`**
+
+In `mediamerger-app/src/ui/output_log.rs`, add `state.file_a.is_some() && state.file_b.is_some()` as required conditions alongside the existing `blocking_reason`/`selected_count`/`output_path`/`offset_resolved` checks, so `merge_enabled` can no longer diverge from `to_merge_plan`'s actual requirements.
+
+- [ ] **Step 3: Verify**
+
+Run `cargo build --workspace` (expect zero errors), `cargo test --workspace` (expect 45/45 pass, unchanged), `cargo clippy --workspace --all-targets` (expect no new warnings).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add mediamerger-app/src/ui/mod.rs mediamerger-app/src/ui/output_log.rs
+git commit -m "Remove duplicate framerate banner and close merge_enabled file-presence gap"
+```
+
+---
+
 ## Manual verification (after all tasks)
 
 This redesign is fundamentally visual; automated tests cover the new pure logic (metadata parsing, waveform downsampling, palette/accent color math) but not what the app actually looks like. Before considering this done, run the real app on a real GNOME desktop (this sandbox has no display server) and confirm:

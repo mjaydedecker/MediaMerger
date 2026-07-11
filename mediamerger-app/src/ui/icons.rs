@@ -38,3 +38,7 @@ pub fn warning(color: Color) -> Element<'static, Message> {
 pub fn sparkle(color: Color) -> Element<'static, Message> {
     icon(include_bytes!("../../assets/icons/sparkle.svg"), color)
 }
+
+pub fn layers(color: Color) -> Element<'static, Message> {
+    icon(include_bytes!("../../assets/icons/layers.svg"), color)
+}

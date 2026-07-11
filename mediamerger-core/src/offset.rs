@@ -1,9 +1,27 @@
 use crate::error::MergerError;
+use crate::probe;
 use rustfft::{num_complex::Complex32, FftPlanner};
 use std::path::Path;
 use std::process::Command;
 
 pub const SAMPLE_RATE_HZ: u32 = 16000;
+const CONSISTENCY_TOLERANCE_SECS: f64 = 0.05;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Consistency {
+    Consistent,
+    Inconsistent,
+    Unverified,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct OffsetResult {
+    pub early_offset: f64,
+    pub late_offset: f64,
+    pub consistency: Consistency,
+    pub confidence: f32,
+    pub offset: f64,
+}
 
 fn bytes_to_f32_samples(bytes: &[u8]) -> Vec<f32> {
     bytes
@@ -83,6 +101,77 @@ pub fn cross_correlate(a: &[f32], b: &[f32], sample_rate: f64) -> (f64, f32) {
     (offset_secs, confidence)
 }
 
+fn pick_windows(shorter_duration: f64) -> (f64, f64, f64) {
+    let window = 180.0_f64.min(shorter_duration * 0.1).max(5.0);
+    if shorter_duration >= 1200.0 {
+        (shorter_duration * 0.30, shorter_duration * 0.70, window)
+    } else {
+        (shorter_duration * 0.20, shorter_duration * 0.80, window)
+    }
+}
+
+fn measure_at(
+    file_a: &Path,
+    track_a: u64,
+    file_b: &Path,
+    track_b: u64,
+    start: f64,
+    window: f64,
+) -> Result<(f64, f32), MergerError> {
+    let a = extract_window(file_a, track_a, start, window)?;
+    let b = extract_window(file_b, track_b, start, window)?;
+    Ok(cross_correlate(&a, &b, SAMPLE_RATE_HZ as f64))
+}
+
+pub fn detect_offset(
+    file_a: &Path,
+    audio_track_a: u64,
+    file_b: &Path,
+    audio_track_b: u64,
+) -> Result<OffsetResult, MergerError> {
+    let duration_a = probe::duration_secs(file_a)?;
+    let duration_b = probe::duration_secs(file_b)?;
+    let shorter = duration_a.min(duration_b);
+
+    if shorter < 120.0 {
+        let window = (shorter * 0.5).max(1.0);
+        let start = shorter * 0.25;
+        let (offset, confidence) = measure_at(file_a, audio_track_a, file_b, audio_track_b, start, window)?;
+        return Ok(OffsetResult {
+            early_offset: offset,
+            late_offset: offset,
+            consistency: Consistency::Unverified,
+            confidence,
+            offset,
+        });
+    }
+
+    let (early_start, late_start, window) = pick_windows(shorter);
+    let (early_offset, early_conf) =
+        measure_at(file_a, audio_track_a, file_b, audio_track_b, early_start, window)?;
+    let (late_offset, late_conf) =
+        measure_at(file_a, audio_track_a, file_b, audio_track_b, late_start, window)?;
+
+    let consistency = if (early_offset - late_offset).abs() <= CONSISTENCY_TOLERANCE_SECS {
+        Consistency::Consistent
+    } else {
+        Consistency::Inconsistent
+    };
+    let offset = if consistency == Consistency::Consistent {
+        (early_offset + late_offset) / 2.0
+    } else {
+        early_offset
+    };
+
+    Ok(OffsetResult {
+        early_offset,
+        late_offset,
+        consistency,
+        confidence: early_conf.min(late_conf),
+        offset,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,5 +243,26 @@ mod cross_correlate_tests {
             noise_confidence < signal_confidence,
             "noise confidence {noise_confidence} should be less than matched-signal confidence {signal_confidence}"
         );
+    }
+}
+
+#[cfg(test)]
+mod detect_offset_tests {
+    use super::*;
+
+    #[test]
+    fn long_file_uses_30_70_split_with_full_window() {
+        let (early, late, window) = pick_windows(3600.0);
+        assert_eq!(early, 1080.0);
+        assert_eq!(late, 2520.0);
+        assert_eq!(window, 180.0);
+    }
+
+    #[test]
+    fn short_file_uses_20_80_split_with_smaller_window() {
+        let (early, late, window) = pick_windows(300.0);
+        assert_eq!(early, 60.0);
+        assert_eq!(late, 240.0);
+        assert!(window < 180.0, "window {window} should be smaller than the default cap");
     }
 }

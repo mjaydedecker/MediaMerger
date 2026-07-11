@@ -66,14 +66,33 @@ async fn check_binaries() -> Vec<&'static str> {
 
 fn update(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
-        Message::PickFileA => Task::perform(pick_and_probe(), Message::FileAProbed),
-        Message::PickFileB => Task::perform(pick_and_probe(), Message::FileBProbed),
+        Message::PickFileA => {
+            // Guard against opening a second native file dialog while one is
+            // already showing - each click otherwise spawns its own
+            // independent rfd::AsyncFileDialog, stacking dialogs and racing
+            // whichever FileAProbed result lands last against the state the
+            // user actually meant to keep.
+            if state.picking_file_a {
+                return Task::none();
+            }
+            state.picking_file_a = true;
+            Task::perform(pick_and_probe(), Message::FileAProbed)
+        }
+        Message::PickFileB => {
+            if state.picking_file_b {
+                return Task::none();
+            }
+            state.picking_file_b = true;
+            Task::perform(pick_and_probe(), Message::FileBProbed)
+        }
 
         Message::FileAProbed(result) => {
+            state.picking_file_a = false;
             apply_probe_result(state, result, true);
             Task::none()
         }
         Message::FileBProbed(result) => {
+            state.picking_file_b = false;
             apply_probe_result(state, result, false);
             Task::none()
         }

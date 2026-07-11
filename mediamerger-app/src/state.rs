@@ -48,6 +48,8 @@ pub struct AppState {
     pub merge_error: Option<String>,
     pub missing_binaries: Vec<&'static str>,
     pub merge_receiver: Option<std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<MuxUiEvent>>>>,
+    pub picking_file_a: bool,
+    pub picking_file_b: bool,
 }
 
 impl Default for AppState {
@@ -73,6 +75,8 @@ impl Default for AppState {
             merge_error: None,
             missing_binaries: Vec::new(),
             merge_receiver: None,
+            picking_file_a: false,
+            picking_file_b: false,
         }
     }
 }

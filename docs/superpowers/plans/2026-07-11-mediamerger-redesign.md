@@ -1632,7 +1632,13 @@ pub fn view(state: &AppState, palette: &Palette) -> Element<Message> {
 
     let blocking_reason = state.blocking_reason();
     let selected_count = state.tracks_a_ui.iter().filter(|t| t.selected).count() + state.tracks_b_ui.iter().filter(|t| t.selected).count();
-    let merge_enabled = blocking_reason.is_none() && selected_count > 0 && state.output_path.is_some();
+    // Must mirror every condition AppState::to_merge_plan actually requires,
+    // including offset_resolved - omitting it would let this show "ready to
+    // merge" (button enabled) in states where to_merge_plan still returns
+    // None (e.g. no audio track found, detection failed, files swapped
+    // after a prior detection), making Merge silently no-op.
+    let offset_resolved = state.resolved_offset_secs().is_some();
+    let merge_enabled = blocking_reason.is_none() && selected_count > 0 && state.output_path.is_some() && offset_resolved;
     let merge_press = if merge_enabled { Some(Message::StartMerge) } else { None };
 
     let (ready_text, ready_color) = if merge_enabled {
@@ -1641,6 +1647,8 @@ pub fn view(state: &AppState, palette: &Palette) -> Element<Message> {
         (format!("Merge blocked: {reason}"), palette.danger_fg)
     } else if selected_count == 0 {
         ("Select at least one track".to_string(), palette.warn_fg)
+    } else if !offset_resolved {
+        ("Detect or enter a sync offset before merging".to_string(), palette.warn_fg)
     } else {
         ("Choose an output file".to_string(), palette.warn_fg)
     };

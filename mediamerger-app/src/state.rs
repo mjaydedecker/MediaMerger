@@ -256,6 +256,8 @@ mod tests {
             consistency: Consistency::Consistent,
             confidence: 8.0,
             offset: 2.35,
+            early_window_start: 0.0,
+            window_duration: 180.0,
         });
         assert_eq!(state.resolved_offset_secs(), Some(2.35));
     }
@@ -339,6 +341,8 @@ mod tests {
             consistency: Consistency::Inconsistent,
             confidence: 1.0,
             offset: 2.5,
+            early_window_start: 0.0,
+            window_duration: 180.0,
         });
         assert!(state.blocking_reason().is_some());
     }

@@ -21,6 +21,8 @@ pub struct OffsetResult {
     pub consistency: Consistency,
     pub confidence: f32,
     pub offset: f64,
+    pub early_window_start: f64,
+    pub window_duration: f64,
 }
 
 fn bytes_to_f32_samples(bytes: &[u8]) -> Vec<f32> {
@@ -143,6 +145,8 @@ pub fn detect_offset(
             consistency: Consistency::Unverified,
             confidence,
             offset,
+            early_window_start: start,
+            window_duration: window,
         });
     }
 
@@ -169,6 +173,8 @@ pub fn detect_offset(
         consistency,
         confidence: early_conf.min(late_conf),
         offset,
+        early_window_start: early_start,
+        window_duration: window,
     })
 }
 
@@ -243,6 +249,109 @@ mod cross_correlate_tests {
             noise_confidence < signal_confidence,
             "noise confidence {noise_confidence} should be less than matched-signal confidence {signal_confidence}"
         );
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WaveformEnvelope {
+    pub bars_a: Vec<f32>,
+    pub bars_b: Vec<f32>,
+    pub window_start_secs: f64,
+    pub window_duration_secs: f64,
+}
+
+fn downsample_rms(samples: &[f32], bucket_count: usize) -> Vec<f32> {
+    if bucket_count == 0 {
+        return Vec::new();
+    }
+    if samples.is_empty() {
+        return vec![0.0; bucket_count];
+    }
+    let chunk_size = (samples.len() / bucket_count).max(1);
+    let mut bars: Vec<f32> = samples
+        .chunks(chunk_size)
+        .map(|chunk| {
+            let sum_sq: f32 = chunk.iter().map(|s| s * s).sum();
+            (sum_sq / chunk.len() as f32).sqrt()
+        })
+        .collect();
+    bars.truncate(bucket_count);
+    bars.resize(bucket_count, 0.0);
+    bars
+}
+
+fn normalize_joint(bars_a: &mut [f32], bars_b: &mut [f32]) {
+    let peak = bars_a
+        .iter()
+        .chain(bars_b.iter())
+        .cloned()
+        .fold(0.0f32, f32::max);
+    if peak > 1e-6 {
+        for b in bars_a.iter_mut().chain(bars_b.iter_mut()) {
+            *b /= peak;
+        }
+    }
+}
+
+pub fn extract_waveform(
+    file_a: &Path,
+    track_a: u64,
+    file_b: &Path,
+    track_b: u64,
+    start_secs: f64,
+    duration_secs: f64,
+    bucket_count: usize,
+) -> Result<WaveformEnvelope, MergerError> {
+    let pcm_a = extract_window(file_a, track_a, start_secs, duration_secs)?;
+    let pcm_b = extract_window(file_b, track_b, start_secs, duration_secs)?;
+
+    let mut bars_a = downsample_rms(&pcm_a, bucket_count);
+    let mut bars_b = downsample_rms(&pcm_b, bucket_count);
+    normalize_joint(&mut bars_a, &mut bars_b);
+
+    Ok(WaveformEnvelope {
+        bars_a,
+        bars_b,
+        window_start_secs: start_secs,
+        window_duration_secs: duration_secs,
+    })
+}
+
+#[cfg(test)]
+mod waveform_tests {
+    use super::*;
+
+    #[test]
+    fn downsample_rms_produces_requested_bucket_count() {
+        let samples: Vec<f32> = (0..1000).map(|i| (i as f32 * 0.01).sin()).collect();
+        let bars = downsample_rms(&samples, 20);
+        assert_eq!(bars.len(), 20);
+    }
+
+    #[test]
+    fn downsample_rms_of_silence_is_zero() {
+        let samples = vec![0.0f32; 500];
+        let bars = downsample_rms(&samples, 10);
+        assert!(bars.iter().all(|&b| b == 0.0));
+    }
+
+    #[test]
+    fn downsample_rms_handles_empty_input() {
+        let bars = downsample_rms(&[], 10);
+        assert_eq!(bars, vec![0.0; 10]);
+    }
+
+    #[test]
+    fn normalize_joint_scales_against_shared_peak_not_per_track() {
+        let mut bars_a = vec![1.0, 0.5]; // louder track
+        let mut bars_b = vec![0.25, 0.1]; // quieter track
+        normalize_joint(&mut bars_a, &mut bars_b);
+
+        // Peak (1.0) came from bars_a, so bars_a's max normalizes to 1.0...
+        assert!((bars_a[0] - 1.0).abs() < 1e-6);
+        // ...but bars_b, being quieter, must NOT also reach 1.0 - it stays
+        // proportionally smaller, preserving the real loudness difference.
+        assert!(bars_b[0] < 0.5, "bars_b[0] = {}, should stay well below 1.0", bars_b[0]);
     }
 }
 

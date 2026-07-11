@@ -1,9 +1,49 @@
 use crate::state::{confidence_quality_label, AppState, Message, OffsetState};
 use crate::theme::Palette;
 use crate::ui::icons;
+use iced::widget::canvas;
 use iced::widget::{button, column, container, row, text, text_input};
 use iced::{Element, Length};
 use mediamerger_core::offset::{Consistency, WaveformEnvelope};
+
+/// Draws two dashed vertical guide lines over the waveform bar rows: one at
+/// the zero/aligned position, one at the detected offset's position.
+struct WaveformGuides {
+    offset_fraction: f32,
+    dim_color: iced::Color,
+    accent_color: iced::Color,
+}
+
+impl canvas::Program<Message> for WaveformGuides {
+    type State = ();
+
+    fn draw(
+        &self,
+        _state: &Self::State,
+        renderer: &iced::Renderer,
+        _theme: &iced::Theme,
+        bounds: iced::Rectangle,
+        _cursor: iced::mouse::Cursor,
+    ) -> Vec<canvas::Geometry> {
+        let mut frame = canvas::Frame::new(renderer, bounds.size());
+        let dash_pattern = canvas::LineDash { segments: &[4.0, 4.0], offset: 0 };
+
+        let stroke_with = |color: iced::Color| {
+            let mut stroke = canvas::Stroke::default().with_color(color).with_width(2.0);
+            stroke.line_dash = dash_pattern;
+            stroke
+        };
+
+        let zero_line = canvas::Path::line(iced::Point::new(0.0, 0.0), iced::Point::new(0.0, bounds.height));
+        frame.stroke(&zero_line, stroke_with(self.dim_color));
+
+        let offset_x = bounds.width * self.offset_fraction.clamp(0.0, 1.0);
+        let offset_line = canvas::Path::line(iced::Point::new(offset_x, 0.0), iced::Point::new(offset_x, bounds.height));
+        frame.stroke(&offset_line, stroke_with(self.accent_color));
+
+        vec![frame.into_geometry()]
+    }
+}
 
 fn status_banner<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> {
     match &state.offset {
@@ -80,16 +120,18 @@ fn waveform_bars(envelope: &WaveformEnvelope, offset_secs: f64, palette: &Palett
         r.into()
     };
 
-    let offset_fraction = (offset_secs / envelope.window_duration_secs).clamp(0.0, 1.0);
-    let marker_label = text(format!("+{offset_secs:.3}s")).size(11).color(palette.accent_fg);
+    let offset_fraction = (offset_secs / envelope.window_duration_secs).clamp(0.0, 1.0) as f32;
+    let guides = canvas(WaveformGuides { offset_fraction, dim_color: palette.dim, accent_color: palette.accent })
+        .width(Length::Fill)
+        .height(Length::Fixed(88.0));
 
-    column![
+    let bars_layer = column![
         row![text("A").size(12).color(palette.accent_fg), bar_row(&envelope.bars_a, palette.accent)].spacing(8),
         row![text("B").size(12).color(palette.dim), bar_row(&envelope.bars_b, palette.wave)].spacing(8),
-        row![text(format!("offset marker at {:.0}% of window", offset_fraction * 100.0)).size(10).color(palette.faint), marker_label].spacing(8),
     ]
-    .spacing(6)
-    .into()
+    .spacing(8);
+
+    iced::widget::stack![bars_layer, guides].into()
 }
 
 pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> {

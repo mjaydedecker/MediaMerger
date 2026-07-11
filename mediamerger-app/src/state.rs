@@ -63,6 +63,7 @@ pub struct AppState {
     pub merge_receiver: Option<std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<MuxUiEvent>>>>,
     pub picking_file_a: bool,
     pub picking_file_b: bool,
+    pub log_expanded: bool,
 }
 
 impl Default for AppState {
@@ -92,6 +93,7 @@ impl Default for AppState {
             merge_receiver: None,
             picking_file_a: false,
             picking_file_b: false,
+            log_expanded: false,
         }
     }
 }
@@ -124,6 +126,7 @@ pub enum Message {
     StartMerge,
     MergeEventReceived(Option<MuxUiEvent>),
     BinariesChecked(Vec<&'static str>),
+    ToggleLogExpanded,
 }
 
 #[derive(Debug, Clone, Default)]

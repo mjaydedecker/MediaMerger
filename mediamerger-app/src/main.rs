@@ -314,6 +314,7 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             let Some(plan) = state.to_merge_plan(output_path) else {
                 return Task::none();
             };
+            state.log_expanded = true;
             state.merge_progress = Some(0.0);
             state.log.clear();
             state.merge_error = None;
@@ -366,6 +367,10 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 Task::none()
             }
         },
+        Message::ToggleLogExpanded => {
+            state.log_expanded = !state.log_expanded;
+            Task::none()
+        }
     }
 }
 

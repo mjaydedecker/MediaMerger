@@ -1737,6 +1737,35 @@ git commit -m "Fix workspace build/lint issues found in final redesign verificat
 
 ---
 
+## Post-Task-11 fix: restore disabled-button dimming
+
+Task 11's fix for `theme::Palette`'s unused `btn_bg`/`btn_hover` fields wired them into new `.style()` closures on the Browse buttons (`file_pickers.rs`, `output_log.rs`) and the Merge button (`output_log.rs`). Review found these closures only branch on `button::Status::Hovered` vs. everything else — before this wiring, these buttons had no explicit `.style()` and used `iced`'s default `primary` style, which dims disabled buttons (`background`/`text_color` alpha scaled down whenever `on_press` is `None`, i.e. `Status::Disabled`). The Merge button in particular is disabled in the common case (any of the four `merge_enabled` conditions unmet) — losing that dimming is a real, code-verifiable regression: a disabled Merge button now renders identically to an enabled one.
+
+**Files:**
+- Modify: `mediamerger-app/src/ui/file_pickers.rs`
+- Modify: `mediamerger-app/src/ui/output_log.rs`
+
+- [ ] **Step 1: Check `iced`'s own disabled-dimming convention before reimplementing it**
+
+Read the actually-installed `iced_widget::button` module's default style function (e.g. `~/.cargo/registry/src/*/iced_widget-*/src/button.rs`) for how it derives a `Status::Disabled` appearance from a base style — it scales background/text alpha down by some factor. Confirm the exact mechanism (method name on `Color`/`Background`, and the factor used) rather than guessing, and mirror it in the two closures below rather than inventing a different dimming approach.
+
+- [ ] **Step 2: Add a `Status::Disabled` arm to both button style closures**
+
+In each of the two closures introduced by Task 11's fix (the Browse button in `file_pickers.rs`, and the Browse/Merge buttons in `output_log.rs`), add explicit handling for `button::Status::Disabled` that dims both the background and text color the same way `iced`'s own default style does, in addition to the existing `Hovered`/other-status branching. The exact code depends on what Step 1 finds, but the shape is: three-way match on `status` (`Hovered` → `btn_hover`; `Disabled` → dimmed `btn_bg`/dimmed text; anything else → plain `btn_bg`), applied consistently in both files.
+
+- [ ] **Step 3: Verify**
+
+Run `cargo build --workspace` (expect zero errors), `cargo test --workspace` (expect 45/45 pass, unchanged), and `cargo clippy --workspace --all-targets` (expect no new warnings).
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add mediamerger-app/src/ui/file_pickers.rs mediamerger-app/src/ui/output_log.rs
+git commit -m "Restore disabled-button dimming lost when wiring btn_bg/btn_hover"
+```
+
+---
+
 ## Manual verification (after all tasks)
 
 This redesign is fundamentally visual; automated tests cover the new pure logic (metadata parsing, waveform downsampling, palette/accent color math) but not what the app actually looks like. Before considering this done, run the real app on a real GNOME desktop (this sandbox has no display server) and confirm:

@@ -10,13 +10,26 @@ fn mkvmerge_available() -> bool {
 }
 
 /// Generates a short synthetic "movie": a video track with a solid color and
-/// a sine-wave audio track, `duration` seconds long. `lead_in` seconds of
-/// silence are prepended to the audio so File A and File B can simulate
-/// differing intro lengths while sharing the same underlying content after
-/// the lead-in.
+/// a deterministic pink-noise audio track, `duration` seconds long. `lead_in`
+/// seconds of silence are prepended to the audio so File A and File B can
+/// simulate differing intro lengths while sharing the same underlying
+/// content after the lead-in.
+///
+/// The audio source is a fixed-seed `anoisesrc` (not a pure `sine` tone).
+/// `cross_correlate` (mediamerger-core/src/offset.rs) is a GCC-PHAT-style
+/// phase-only correlator: a single-frequency tone gives it no time-localized
+/// feature to lock onto (a 5-second offset in a 440Hz tone is ~2,200
+/// identical periods, and PHAT whitening amplifies numerical-noise bins to
+/// the same weight as the real signal), which is exactly the failure mode
+/// `offset.rs`'s own unit tests avoid by using a two-frequency signal instead
+/// of a single tone. Broadband noise sidesteps this entirely - it has no
+/// periodicity to confuse the correlator - and using the SAME fixed seed for
+/// both files' `generate_fixture` calls (hardcoded below, not parameterized)
+/// makes the two files' shared "content" region bit-for-bit identical noise,
+/// which is what the correlation actually needs to match against.
 fn generate_fixture(path: &PathBuf, duration_secs: u32, lead_in_secs: f64) {
     let audio_filter = format!(
-        "sine=frequency=440:duration={duration_secs},adelay={}|{}",
+        "anoisesrc=duration={duration_secs}:color=pink:sample_rate=16000:seed=42,adelay={}|{}",
         (lead_in_secs * 1000.0) as u64,
         (lead_in_secs * 1000.0) as u64
     );
@@ -24,7 +37,7 @@ fn generate_fixture(path: &PathBuf, duration_secs: u32, lead_in_secs: f64) {
         .args(["-y", "-f", "lavfi", "-i"])
         .arg(format!("testsrc=duration={duration_secs}:size=320x240:rate=24"))
         .args(["-f", "lavfi", "-i"])
-        .arg(audio_filter.replace("sine=", "sine="))
+        .arg(audio_filter)
         .args(["-c:v", "libx264", "-c:a", "aac", "-shortest"])
         .arg(path)
         .status()

@@ -1,3 +1,3 @@
 [workspace]
-members = ["mediamerger-core"]
+members = ["mediamerger-core", "mediamerger-app"]
 resolver = "2"

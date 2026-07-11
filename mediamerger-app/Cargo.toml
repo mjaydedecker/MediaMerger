@@ -1,0 +1,15 @@
+[package]
+name = "mediamerger-app"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "mediamerger"
+path = "src/main.rs"
+
+[dependencies]
+mediamerger-core = { path = "../mediamerger-core" }
+iced = { version = "0.14", features = ["tokio"] }
+tokio = { version = "1", features = ["full"] }
+rfd = { version = "0.14", features = ["xdg-portal"] }
+dark-light = "1"

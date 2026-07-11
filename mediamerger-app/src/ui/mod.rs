@@ -1,3 +1,4 @@
+mod extras;
 mod file_pickers;
 mod offset_panel;
 mod track_table;
@@ -11,6 +12,7 @@ pub fn view(state: &AppState) -> Element<Message> {
         file_pickers::view(state),
         track_table::view(state),
         offset_panel::view(state),
+        extras::view(state),
     ]
     .spacing(20);
 

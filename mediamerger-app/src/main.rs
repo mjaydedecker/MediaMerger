@@ -156,6 +156,27 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.manual_offset_input = text;
             Task::none()
         }
+
+        Message::ChaptersChoiceChanged(choice) => {
+            state.chapters_choice = choice;
+            Task::none()
+        }
+        Message::ToggleAttachmentsA(v) => {
+            state.attachments_a = v;
+            Task::none()
+        }
+        Message::ToggleAttachmentsB(v) => {
+            state.attachments_b = v;
+            Task::none()
+        }
+        Message::ToggleTagsA(v) => {
+            state.tags_a = v;
+            Task::none()
+        }
+        Message::ToggleTagsB(v) => {
+            state.tags_b = v;
+            Task::none()
+        }
     }
 }
 

@@ -30,11 +30,19 @@ fn file_chips(file: &MediaFile, palette: &Palette) -> Element<'static, Message> 
         if let (Some(w), Some(h)) = (v.width, v.height) {
             chips = chips.push(chip(format!("{w}x{h}"), palette));
         }
+    }
+
+    if let Some(secs) = file.duration_secs {
+        chips = chips.push(chip(crate::state::format_duration(secs), palette));
+    }
+
+    chips = chips.push(chip(format!("{} tracks", file.tracks.len()), palette));
+
+    if let Some(v) = video_track {
         if let Some(fps) = v.fps {
             chips = chips.push(chip(format!("{fps:.3} fps"), palette));
         }
     }
-    chips = chips.push(chip(format!("{} tracks", file.tracks.len()), palette));
 
     let size_gb = file.file_size_bytes as f64 / 1_073_741_824.0;
     chips = chips.push(chip(format!("{size_gb:.1} GB"), palette));

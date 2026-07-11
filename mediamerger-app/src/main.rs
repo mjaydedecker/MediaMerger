@@ -48,9 +48,15 @@ fn subscription(_state: &AppState) -> Subscription<Message> {
 async fn check_binaries() -> Vec<&'static str> {
     tokio::task::spawn_blocking(|| {
         let mut missing = Vec::new();
-        for bin in ["ffmpeg", "ffprobe", "mkvmerge"] {
+        // ffmpeg/ffprobe's argument parser only strips a single leading
+        // dash, so "--version" is misparsed as the unrecognized option
+        // "-version" and fails even though the binary is installed and
+        // working fine - confirmed against a real ffmpeg 8.0.1 install
+        // ("Unrecognized option '-version'.", exit 8). mkvmerge uses a
+        // standard GNU-style parser and needs the double dash.
+        for (bin, version_flag) in [("ffmpeg", "-version"), ("ffprobe", "-version"), ("mkvmerge", "--version")] {
             let found = std::process::Command::new(bin)
-                .arg("--version")
+                .arg(version_flag)
                 .output()
                 .map(|o| o.status.success())
                 .unwrap_or(false);

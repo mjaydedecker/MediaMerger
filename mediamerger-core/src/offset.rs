@@ -89,9 +89,7 @@ pub fn cross_correlate(a: &[f32], b: &[f32], sample_rate: f64) -> (f64, f32) {
         .max_by(|(_, x), (_, y)| x.total_cmp(y))
         .expect("mags is non-empty");
 
-    let sum: f32 = mags.iter().sum();
-    let mean_other = (sum - peak_val) / (mags.len() as f32 - 1.0).max(1.0);
-    let confidence = if mean_other > 1e-9 { peak_val / mean_other } else { peak_val };
+    let confidence = confidence_from_mags(&mags, peak_val);
 
     // NOTE ON SIGN: this lag convention is verified by the tests below, not by
     // derivation. If `positive_offset_means_b_lags_a` fails with the correct
@@ -101,6 +99,26 @@ pub fn cross_correlate(a: &[f32], b: &[f32], sample_rate: f64) -> (f64, f32) {
     let offset_secs = -lag as f64 / sample_rate;
 
     (offset_secs, confidence)
+}
+
+/// Confidence = peak magnitude / mean magnitude of every other bin.
+///
+/// Accumulates the sum in f64, not f32. `mags` has one entry per FFT bin -
+/// for a realistic ~180s correlation window at 16kHz, that's an FFT size
+/// right around 2^23, which is exactly f32's precision limit (23-bit
+/// mantissa). Summing that many f32 values in-place saturates once the
+/// running total is too large to represent a further unit-magnitude
+/// increment, silently dropping it - the resulting `sum` (and thus
+/// `mean_other`) ends up reflecting the bin count rather than the actual
+/// magnitudes, producing a `confidence` that blows up to roughly the FFT
+/// size instead of a meaningful ratio (observed in the wild: a reported
+/// confidence of ~8.3 million, matching 2^23 = 8,388,608 almost exactly).
+/// f64's precision limit (2^52) is unreachable for any realistic window.
+fn confidence_from_mags(mags: &[f32], peak_val: f32) -> f32 {
+    let sum: f64 = mags.iter().map(|&m| m as f64).sum();
+    let peak_val = peak_val as f64;
+    let mean_other = (sum - peak_val) / (mags.len() as f64 - 1.0).max(1.0);
+    if mean_other > 1e-9 { (peak_val / mean_other) as f32 } else { peak_val as f32 }
 }
 
 fn pick_windows(shorter_duration: f64) -> (f64, f64, f64) {
@@ -249,6 +267,31 @@ mod cross_correlate_tests {
             noise_confidence < signal_confidence,
             "noise confidence {noise_confidence} should be less than matched-signal confidence {signal_confidence}"
         );
+    }
+
+    #[test]
+    fn confidence_does_not_blow_up_from_f32_summation_precision_loss() {
+        // Regression test for a real bug hit in production: a naive f32
+        // accumulator summing millions of unit-magnitude bins (a realistic
+        // FFT size for a long correlation window) silently drops further
+        // increments once the running total exceeds f32's representable
+        // precision at that magnitude, corrupting mean_other and reporting
+        // a confidence in the millions instead of a small ratio.
+        //
+        // Construct this exactly: (n-1) bins all at 1.0 and one peak bin at
+        // 2.0. The true answer is unambiguous - mean_other over (n-1)
+        // identical 1.0 values is exactly 1.0, so confidence must be
+        // peak/mean_other = 2.0. n is chosen comfortably past f32's exact
+        // integer limit (2^24) so the old f32-summing code would have
+        // definitely saturated and gotten this wrong.
+        let n = 20_000_000;
+        let mut mags = vec![1.0f32; n];
+        let peak_idx = 42;
+        mags[peak_idx] = 2.0;
+
+        let confidence = confidence_from_mags(&mags, mags[peak_idx]);
+
+        assert!((confidence - 2.0).abs() < 0.01, "expected confidence ~2.0, got {confidence}");
     }
 }
 

@@ -2840,6 +2840,118 @@ git commit -m "Add end-to-end integration test covering probe, offset detection,
 
 ---
 
+## Post-implementation fix: enforce framerate/consistency guards + RPM deps
+
+The final whole-branch review (after all 15 tasks passed their individual
+reviews) found that two binding Global Constraints were each **displayed**
+but never actually **enforced**, because no single task's scope included
+wiring the guard into the button/message handlers — each task correctly
+built its own piece (the banner, the detection, the merge execution) in
+isolation, and the gap only became visible once everything was assembled:
+
+1. **Framerate mismatch doesn't block anything.** `AppState.framerate_error`
+   is set and rendered as a banner (`ui/mod.rs`), but `Message::DetectOffset`
+   only checks that both files/audio-tracks are present, and
+   `Message::StartMerge` only checks `merge_receiver`/`output_path`/
+   `to_merge_plan`. A user can click through the banner and merge a
+   framerate-mismatched pair, producing progressively-desynced output —
+   exactly what "gates offset detection entirely" (see the `probe` module
+   design) was meant to prevent.
+2. **Inconsistent offset doesn't block the merge.** When
+   `Consistency::Inconsistent`, `detect_offset` still returns a usable
+   `offset` (falls back to `early_offset`), so `resolved_offset_secs()`
+   returns `Some(...)` regardless, and `StartMerge` proceeds. The only
+   visible effect is the `"INCONSISTENT — resolve manually before merging"`
+   label — nothing requires the user to actually do anything about it.
+3. **RPM packaging omits the `mkvtoolnix`/`ffmpeg` runtime dependency.** The
+   `.deb` metadata declares `depends = "mkvtoolnix, ffmpeg"`, but there is no
+   corresponding `[package.metadata.generate-rpm]` `requires` — only asset
+   entries. An installed `.rpm` would not pull in either dependency.
+
+### Fix
+
+**Files:**
+- Modify: `mediamerger-app/src/state.rs`
+- Modify: `mediamerger-app/src/main.rs`
+- Modify: `mediamerger-app/src/ui/offset_panel.rs`
+- Modify: `mediamerger-app/src/ui/output_log.rs`
+- Modify: `mediamerger-app/Cargo.toml`
+
+**1. Add a pure gating predicate to `AppState`** (`state.rs`), next to
+`resolved_offset_secs`:
+
+```rust
+impl AppState {
+    /// Returns Some(reason) if the merge (or a fresh offset detection) must
+    /// be blocked per the app's binding guards, None if clear to proceed.
+    /// A user-entered ManualOverride always counts as the "manual
+    /// confirmation" an Inconsistent result demands, regardless of the
+    /// Consistency verdict that produced the pre-filled value.
+    pub fn blocking_reason(&self) -> Option<String> {
+        if self.framerate_error.is_some() {
+            return Some("video framerates do not match".to_string());
+        }
+        if let OffsetState::Detected(r) = &self.offset {
+            if r.consistency == mediamerger_core::offset::Consistency::Inconsistent {
+                return Some("offset measurements are inconsistent - resolve manually before merging".to_string());
+            }
+        }
+        None
+    }
+}
+```
+
+Add tests: `blocking_reason` is `None` on a default `AppState`; is
+`Some` when `framerate_error` is set; is `Some` when `offset` is
+`Detected` with `Consistency::Inconsistent`; is `None` when `offset` is
+`ManualOverride` even if it was derived from an inconsistent detection
+(construct this by setting `offset` directly to `ManualOverride(v)` — the
+predicate only inspects the `Detected` variant, so a `ManualOverride` is
+never blocked, matching the "manual confirmation" contract).
+
+**2. Gate `Message::DetectOffset`** in `main.rs`: add
+`if state.framerate_error.is_some() { return Task::none(); }` as the very
+first line of the arm, before `state.offset = OffsetState::Detecting;` —
+consistent with the design's "gates offset detection entirely."
+
+**3. Gate `Message::StartMerge`** in `main.rs`: add
+`if state.blocking_reason().is_some() { return Task::none(); }` immediately
+after the existing `merge_receiver.is_some()` guard (Task 13's double-click
+fix), before the `output_path`/`plan` checks.
+
+**4. Disable the affected buttons in the view layer**, so the guard is
+visible, not just silently inert. Check `iced` 0.14's actual `button`
+widget for a conditional-press method (e.g. `on_press_maybe(Option<Message>)`
+— verify against the installed crate rather than assuming, the same way
+Tasks 9-13 checked `checkbox`/`radio`/`text_input` against the real source).
+In `offset_panel.rs`, the "Detect Offset" button's press message should be
+`None` (disabled) when `state.framerate_error.is_some()`. In
+`output_log.rs`, the "Merge" button's press message should be `None` when
+`state.blocking_reason().is_some()`. Also render `state.blocking_reason()`
+as a visible line in `output_log.rs` when `Some`, so a disabled Merge
+button has a stated reason next to it, not just a greyed-out control.
+
+**5. Add RPM runtime dependencies** to `mediamerger-app/Cargo.toml`,
+alongside the existing `[[package.metadata.generate-rpm.assets]]` entries:
+
+```toml
+[package.metadata.generate-rpm]
+requires = { mkvtoolnix = "*", ffmpeg = "*" }
+```
+
+(If this exact key shape doesn't match the installed `cargo-generate-rpm`
+version's schema, adapt to whatever that tool's docs specify for declaring
+package requirements — the binding requirement is that the built `.rpm`
+declares both dependencies, not this literal TOML shape.)
+
+**Verification:** `cargo build --workspace`, `cargo test --workspace`
+(including the four new `blocking_reason` tests), `cargo clippy --workspace
+--all-targets`. GUI button-disabling behavior can't be interactively
+verified in a headless sandbox — add it to the Manual Verification
+checklist below rather than skipping it silently.
+
+---
+
 ## Manual verification (after all tasks)
 
 Automated tests validate individual units; before considering the app done, run it against two real differently-encoded copies of the same movie (per the `verify` skill) and confirm:
@@ -2850,3 +2962,4 @@ Automated tests validate individual units; before considering the app done, run 
 4. The merged output plays with audio and video in sync from the first frame of the extracted middle window through to the end of the file, not just at the detected windows.
 5. Chapters/attachments/tags toggles behave as expected in the resulting file (inspect with `mkvmerge -J output.mkv` or `mkvinfo`).
 6. Run `cargo test -p mediamerger-core --test end_to_end -- --nocapture` on a machine with `ffmpeg` and `mkvtoolnix` actually installed and confirm it PASSES (not just compiles) — the implementation sandbox had neither tool available, so this integration test's real behavior (fixture generation via `anoisesrc`, the ~5s offset assertion, and the mux/output-track-count assertion) was never executed end-to-end during development, only verified by code inspection.
+7. Confirm the "Detect Offset" button is actually disabled (not just visually similar) when a framerate-mismatch banner is showing, and the "Merge" button is actually disabled when `blocking_reason()` is `Some` (framerate mismatch or inconsistent, non-overridden offset) — this button-disabling behavior was added post-implementation per the whole-branch review and could not be interactively verified in the headless build sandbox.

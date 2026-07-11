@@ -152,6 +152,17 @@ pub fn run_mux(args: &[String], mut on_event: impl FnMut(MuxEvent)) -> Result<()
         .spawn()
         .map_err(|_| MergerError::MkvmergeNotFound)?;
 
+    // stderr must be drained concurrently with stdout, not after: mkvmerge can
+    // write enough to stderr (warnings, etc.) to fill the OS pipe buffer
+    // (~64KB on Linux) while we're still blocked reading stdout line-by-line,
+    // which would deadlock both processes.
+    let stderr = child.stderr.take().expect("stderr was piped at spawn");
+    let stderr_handle = std::thread::spawn(move || {
+        let mut buf = String::new();
+        let _ = BufReader::new(stderr).read_to_string(&mut buf);
+        buf
+    });
+
     let stdout = child.stdout.take().expect("stdout was piped at spawn");
     let reader = BufReader::new(stdout);
     for line in reader.lines() {
@@ -160,15 +171,10 @@ pub fn run_mux(args: &[String], mut on_event: impl FnMut(MuxEvent)) -> Result<()
     }
 
     let status = child.wait().map_err(|e| MergerError::MuxFailed(e.to_string()))?;
+    let stderr_text = stderr_handle.join().unwrap_or_default();
     match status.code() {
         Some(0) | Some(1) => Ok(()),
-        _ => {
-            let mut stderr_text = String::new();
-            if let Some(mut stderr) = child.stderr.take() {
-                let _ = stderr.read_to_string(&mut stderr_text);
-            }
-            Err(MergerError::MuxFailed(stderr_text))
-        }
+        _ => Err(MergerError::MuxFailed(stderr_text)),
     }
 }
 

@@ -33,15 +33,22 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
         ("Choose an output file".to_string(), palette.warn_fg)
     };
 
+    let btn_bg = palette.btn_bg;
+    let btn_hover = palette.btn_hover;
+    let btn_style = move |_theme: &_, status: button::Status| {
+        let background = if status == button::Status::Hovered { btn_hover } else { btn_bg };
+        button::Style { background: Some(background.into()), ..Default::default() }
+    };
+
     let mut col = column![
         row![
             text(output_label).size(12).color(palette.fg).width(Length::Fill),
-            button(row![icons::folder(palette.fg), text("Browse")].spacing(6)).on_press(Message::PickOutput),
+            button(row![icons::folder(palette.fg), text("Browse")].spacing(6)).style(btn_style).on_press(Message::PickOutput),
         ]
         .spacing(10),
         row![
             text(ready_text).size(12).color(ready_color).width(Length::Fill),
-            button("Merge").on_press_maybe(merge_press),
+            button("Merge").style(btn_style).on_press_maybe(merge_press),
         ]
         .spacing(10),
     ]

@@ -56,10 +56,16 @@ fn file_card<'a>(
 
     let browse_press = if picking { None } else { Some(on_browse) };
 
+    let btn_bg = palette.btn_bg;
+    let btn_hover = palette.btn_hover;
     let mut card = column![
         row![
             text(label).size(13).color(palette.fg),
             button(row![icons::folder(palette.fg), text("Browse")].spacing(6))
+                .style(move |_theme, status| {
+                    let background = if status == button::Status::Hovered { btn_hover } else { btn_bg };
+                    button::Style { background: Some(background.into()), ..Default::default() }
+                })
                 .on_press_maybe(browse_press),
         ]
         .spacing(10),

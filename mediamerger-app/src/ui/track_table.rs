@@ -1,7 +1,7 @@
 use crate::state::{AppState, Message, TrackUiState};
 use crate::theme::Palette;
 use crate::ui::icons;
-use iced::widget::{button, checkbox, column, container, row, text};
+use iced::widget::{button, checkbox, column, container, row, rule, text};
 use iced::{Element, Length};
 use mediamerger_core::probe::{channel_layout_label, MediaFile, Track, TrackKind};
 
@@ -95,7 +95,16 @@ fn file_column<'a>(
         None => text("No file loaded").color(palette.faint).into(),
         Some(f) => {
             let mut col = column![].spacing(0);
+            let separator_color = palette.separator;
             for (idx, track) in f.tracks.iter().enumerate() {
+                if idx > 0 {
+                    col = col.push(rule::horizontal(1).style(move |_theme| rule::Style {
+                        color: separator_color,
+                        radius: 0.0.into(),
+                        fill_mode: rule::FillMode::Full,
+                        snap: false,
+                    }));
+                }
                 let row_ui = ui.get(idx).cloned().unwrap_or_default();
                 col = col.push(track_row(idx, track, &row_ui, palette, on_toggle, on_default, on_forced));
             }

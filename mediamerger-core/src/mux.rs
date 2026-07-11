@@ -1,5 +1,14 @@
+use crate::error::MergerError;
 use crate::probe::TrackKind;
+use std::io::{BufRead, BufReader, Read};
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MuxEvent {
+    Progress(f32),
+    Log(String),
+}
 
 #[derive(Debug, Clone)]
 pub struct TrackSelection {
@@ -29,6 +38,15 @@ pub struct MergePlan {
     pub tags_from_a: bool,
     pub tags_from_b: bool,
     pub output_path: PathBuf,
+}
+
+fn parse_line(line: &str) -> MuxEvent {
+    if let Some(rest) = line.strip_prefix("#GUI#progress ") {
+        if let Ok(pct) = rest.trim().trim_end_matches('%').parse::<f32>() {
+            return MuxEvent::Progress(pct / 100.0);
+        }
+    }
+    MuxEvent::Log(line.to_string())
 }
 
 fn push_track_selection_args(args: &mut Vec<String>, selections: &[TrackSelection]) {
@@ -121,6 +139,37 @@ pub fn build_command(plan: &MergePlan) -> Vec<String> {
     args.push(order_parts.join(","));
 
     args
+}
+
+pub fn run_mux(args: &[String], mut on_event: impl FnMut(MuxEvent)) -> Result<(), MergerError> {
+    let mut full_args = vec!["--gui-mode".to_string()];
+    full_args.extend_from_slice(args);
+
+    let mut child = Command::new("mkvmerge")
+        .args(&full_args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| MergerError::MkvmergeNotFound)?;
+
+    let stdout = child.stdout.take().expect("stdout was piped at spawn");
+    let reader = BufReader::new(stdout);
+    for line in reader.lines() {
+        let line = line.map_err(|e| MergerError::MuxFailed(e.to_string()))?;
+        on_event(parse_line(&line));
+    }
+
+    let status = child.wait().map_err(|e| MergerError::MuxFailed(e.to_string()))?;
+    match status.code() {
+        Some(0) | Some(1) => Ok(()),
+        _ => {
+            let mut stderr_text = String::new();
+            if let Some(mut stderr) = child.stderr.take() {
+                let _ = stderr.read_to_string(&mut stderr_text);
+            }
+            Err(MergerError::MuxFailed(stderr_text))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -218,5 +267,18 @@ mod tests {
 
         let sync_idx = args.iter().position(|a| a == "--sync").expect("--sync present");
         assert_eq!(args[sync_idx + 1], "2:500");
+    }
+
+    #[test]
+    fn parses_gui_progress_line() {
+        assert_eq!(parse_line("#GUI#progress 42%"), MuxEvent::Progress(0.42));
+    }
+
+    #[test]
+    fn treats_other_lines_as_log() {
+        assert_eq!(
+            parse_line("Warning: some warning text"),
+            MuxEvent::Log("Warning: some warning text".to_string())
+        );
     }
 }

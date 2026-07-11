@@ -127,6 +127,9 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
 
         Message::DetectOffset => {
+            if state.framerate_error.is_some() {
+                return Task::none();
+            }
             state.offset = state::OffsetState::Detecting;
             state.detect_offset_error = None;
             let (Some(file_a), Some(file_b)) = (state.file_a.clone(), state.file_b.clone()) else {
@@ -223,6 +226,9 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             // merge_receiver would silently orphan the first run's worker
             // thread and drop its progress/log feed.
             if state.merge_receiver.is_some() {
+                return Task::none();
+            }
+            if state.blocking_reason().is_some() {
                 return Task::none();
             }
             let Some(output_path) = state.output_path.clone() else {

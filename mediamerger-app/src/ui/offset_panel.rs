@@ -23,9 +23,15 @@ pub fn view(state: &AppState) -> Element<Message> {
         OffsetState::ManualOverride(v) => text(format!("manual override: {v:.3}s")).into(),
     };
 
+    let detect_offset_press = if state.framerate_error.is_some() {
+        None
+    } else {
+        Some(Message::DetectOffset)
+    };
+
     let mut col = column![
         row![
-            button("Detect Offset").on_press(Message::DetectOffset),
+            button("Detect Offset").on_press_maybe(detect_offset_press),
             text_input("offset seconds", &state.manual_offset_input)
                 .on_input(Message::ManualOffsetChanged),
         ]

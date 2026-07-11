@@ -27,6 +27,9 @@ assets = [
     ["assets/mediamerger.desktop", "usr/share/applications/", "644"],
 ]
 
+[package.metadata.generate-rpm]
+requires = { mkvtoolnix = "*", ffmpeg = "*" }
+
 [[package.metadata.generate-rpm.assets]]
 source = "target/release/mediamerger"
 dest = "/usr/bin/mediamerger"

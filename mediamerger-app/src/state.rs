@@ -126,6 +126,23 @@ impl AppState {
         }
     }
 
+    /// Returns Some(reason) if the merge (or a fresh offset detection) must
+    /// be blocked per the app's binding guards, None if clear to proceed.
+    /// A user-entered ManualOverride always counts as the "manual
+    /// confirmation" an Inconsistent result demands, regardless of the
+    /// Consistency verdict that produced the pre-filled value.
+    pub fn blocking_reason(&self) -> Option<String> {
+        if self.framerate_error.is_some() {
+            return Some("video framerates do not match".to_string());
+        }
+        if let OffsetState::Detected(r) = &self.offset {
+            if r.consistency == mediamerger_core::offset::Consistency::Inconsistent {
+                return Some("offset measurements are inconsistent - resolve manually before merging".to_string());
+            }
+        }
+        None
+    }
+
     pub fn to_merge_plan(&self, output_path: PathBuf) -> Option<MergePlan> {
         let file_a = self.file_a.as_ref()?;
         let file_b = self.file_b.as_ref()?;
@@ -286,6 +303,42 @@ mod tests {
         assert_eq!(plan.tracks_from_b[0].track_id, 2);
         assert!(plan.tracks_from_b[0].set_default);
         assert_eq!(plan.offset_secs, 2.0);
+    }
+
+    #[test]
+    fn blocking_reason_none_on_default_state() {
+        let state = AppState::default();
+        assert_eq!(state.blocking_reason(), None);
+    }
+
+    #[test]
+    fn blocking_reason_some_when_framerate_error_set() {
+        let mut state = AppState::default();
+        state.framerate_error = Some(MergerError::Probe("framerate mismatch".to_string()));
+        assert!(state.blocking_reason().is_some());
+    }
+
+    #[test]
+    fn blocking_reason_some_when_offset_detected_inconsistent() {
+        let mut state = AppState::default();
+        state.offset = OffsetState::Detected(OffsetResult {
+            early_offset: 2.0,
+            late_offset: 3.0,
+            consistency: Consistency::Inconsistent,
+            confidence: 1.0,
+            offset: 2.5,
+        });
+        assert!(state.blocking_reason().is_some());
+    }
+
+    #[test]
+    fn blocking_reason_none_when_manual_override_even_if_derived_from_inconsistent() {
+        let mut state = AppState::default();
+        // Simulates a user accepting/overriding an inconsistent detection's
+        // pre-filled value: once it's a ManualOverride, the predicate no
+        // longer inspects the Consistency verdict that produced it.
+        state.offset = OffsetState::ManualOverride(2.5);
+        assert_eq!(state.blocking_reason(), None);
     }
 
     #[test]

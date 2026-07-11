@@ -2,7 +2,7 @@ use crate::state::{AppState, Message};
 use crate::theme::Palette;
 use crate::ui::icons;
 use iced::widget::{button, column, container, row, text};
-use iced::Element;
+use iced::{Element, Length};
 use mediamerger_core::probe::{MediaFile, TrackKind};
 
 fn chip(label: String, palette: &Palette) -> Element<'static, Message> {
@@ -82,7 +82,16 @@ fn file_card<'a>(
                 .on_press_maybe(browse_press),
         ]
         .spacing(10),
-        row![icons::video(palette.dim), text(path_text).size(12).color(palette.fg)].spacing(8),
+        row![
+            icons::video(palette.dim),
+            // Fill + wrap rather than letting the text force the row (and
+            // therefore this whole card) wider to fit a long path on one
+            // line - without this, a long File A path could grow File A's
+            // card at File B's expense when the window is resized, since
+            // neither card had an explicit width to split the row evenly.
+            text(path_text).size(12).color(palette.fg).width(Length::Fill),
+        ]
+        .spacing(8),
     ]
     .spacing(10);
 
@@ -95,6 +104,11 @@ fn file_card<'a>(
     let card_bg = palette.card;
     let border_color = palette.border;
     container(card)
+        // Split the row evenly between File A/B regardless of content
+        // length - each card previously defaulted to Length::Shrink,
+        // sizing to its own content, so whichever file had the longer path
+        // text could dominate the row's width on resize.
+        .width(Length::FillPortion(1))
         .padding(15)
         .style(move |_theme| container::Style {
             background: Some(card_bg.into()),

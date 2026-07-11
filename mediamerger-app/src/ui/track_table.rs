@@ -91,8 +91,15 @@ fn file_column<'a>(
     on_default: impl Fn(usize, bool) -> Message + Copy + 'a,
     on_forced: impl Fn(usize, bool) -> Message + Copy + 'a,
 ) -> Element<'a, Message> {
+    // Both branches get an explicit FillPortion(1) width so File A/B split
+    // the row evenly regardless of content - without this, whichever file's
+    // codec/detail text happened to be wider (or an empty "No file loaded"
+    // side) could unbalance the two columns on resize, the same class of
+    // bug fixed for the file-picker cards above.
     match file {
-        None => text("No file loaded").color(palette.faint).into(),
+        None => container(text("No file loaded").color(palette.faint))
+            .width(Length::FillPortion(1))
+            .into(),
         Some(f) => {
             let mut col = column![].spacing(0);
             let separator_color = palette.separator;
@@ -111,6 +118,7 @@ fn file_column<'a>(
             let card_bg = palette.card;
             let border_color = palette.border;
             container(col)
+                .width(Length::FillPortion(1))
                 .style(move |_theme| container::Style {
                     background: Some(card_bg.into()),
                     border: iced::Border { color: border_color, width: 1.0, radius: 12.0.into() },

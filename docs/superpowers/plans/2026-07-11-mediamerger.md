@@ -34,9 +34,11 @@
 
 - [ ] **Step 1: Create the workspace root `Cargo.toml`**
 
+`mediamerger-app` isn't created until Task 9 — listing it as a member now would break `cargo build`/`cargo test` for anyone checking out this commit alone, since Cargo resolves the whole workspace manifest before scoping to `-p mediamerger-core`. List only `mediamerger-core` for now; Task 9 adds `mediamerger-app` to this list when it creates that crate.
+
 ```toml
 [workspace]
-members = ["mediamerger-core", "mediamerger-app"]
+members = ["mediamerger-core"]
 resolver = "2"
 ```
 
@@ -1224,6 +1226,7 @@ git commit -m "Add mkvmerge process execution with progress/log streaming"
 ## Task 9: App scaffolding + file pickers & probing
 
 **Files:**
+- Modify: `Cargo.toml` (workspace root — add `mediamerger-app` to `members`)
 - Create: `mediamerger-app/Cargo.toml`
 - Create: `mediamerger-app/src/main.rs`
 - Create: `mediamerger-app/src/state.rs`
@@ -1233,6 +1236,16 @@ git commit -m "Add mkvmerge process execution with progress/log streaming"
 **Interfaces:**
 - Consumes: `mediamerger_core::probe::{identify, check_framerate, MediaFile}` (Tasks 2–3), `mediamerger_core::error::MergerError` (Task 1)
 - Produces: `AppState` (`#[derive(Debug, Clone)]`) with fields `file_a: Option<MediaFile>`, `file_b: Option<MediaFile>`, `framerate_error: Option<MergerError>`, `is_dark: bool`; `Message` (`#[derive(Debug, Clone)]`) with initial variants `PickFileA`, `PickFileB`, `FileAProbed(Result<MediaFile, MergerError>)`, `FileBProbed(Result<MediaFile, MergerError>)`, `RefreshSystemTheme`, `SystemThemeDetected(bool)`; `pub fn view(state: &AppState) -> Element<Message>` in `ui::mod`.
+
+- [ ] **Step 0: Add `mediamerger-app` to the workspace members**
+
+Edit the workspace root `Cargo.toml` (Task 1 created it with only `mediamerger-core`):
+
+```toml
+[workspace]
+members = ["mediamerger-core", "mediamerger-app"]
+resolver = "2"
+```
 
 - [ ] **Step 1: Create `mediamerger-app/Cargo.toml`**
 

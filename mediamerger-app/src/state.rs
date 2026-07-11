@@ -211,6 +211,13 @@ mod tests {
             forced_flag: false,
             fps: None,
             channels: None,
+            width: None,
+            height: None,
+            sampling_rate: None,
+            bits_per_sample: None,
+            bitrate_bps: None,
+            is_hdr10: false,
+            is_dolby_vision: false,
         }
     }
 
@@ -258,6 +265,7 @@ mod tests {
             path: PathBuf::from(path),
             container: "Matroska".to_string(),
             tracks,
+            file_size_bytes: 0,
         }
     }
 

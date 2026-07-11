@@ -21,6 +21,17 @@ pub struct Track {
     pub forced_flag: bool,
     pub fps: Option<f64>,
     pub channels: Option<u32>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub sampling_rate: Option<u32>,
+    pub bits_per_sample: Option<u32>,
+    /// Only ever a value the source container reports directly (mkvmerge's
+    /// `tag_bps` property) - never estimated from file size / duration.
+    pub bitrate_bps: Option<u64>,
+    /// Best-effort from color/block-addition properties; false when not
+    /// confidently detectable, never a guess.
+    pub is_hdr10: bool,
+    pub is_dolby_vision: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +39,7 @@ pub struct MediaFile {
     pub path: PathBuf,
     pub container: String,
     pub tracks: Vec<Track>,
+    pub file_size_bytes: u64,
 }
 
 #[derive(Deserialize)]
@@ -61,6 +73,18 @@ struct MkvmergeTrackProperties {
     track_name: Option<String>,
     audio_channels: Option<u32>,
     default_duration: Option<u64>,
+    pixel_dimensions: Option<String>,
+    audio_sampling_frequency: Option<u32>,
+    audio_bits_per_sample: Option<u32>,
+    tag_bps: Option<String>,
+    color_transfer_characteristics: Option<u32>,
+    #[serde(default)]
+    block_addition_mappings: Vec<MkvmergeBlockAdditionMapping>,
+}
+
+#[derive(Deserialize)]
+struct MkvmergeBlockAdditionMapping {
+    id_type: Option<u32>,
 }
 
 fn parse_mkvmerge_json(bytes: &[u8], path: &Path) -> Result<MediaFile, MergerError> {
@@ -82,6 +106,26 @@ fn parse_mkvmerge_json(bytes: &[u8], path: &Path) -> Result<MediaFile, MergerErr
                 .default_duration
                 .filter(|&ns| ns > 0)
                 .map(|ns| 1_000_000_000.0 / ns as f64);
+            let (width, height) = t
+                .properties
+                .pixel_dimensions
+                .as_deref()
+                .and_then(|s| s.split_once('x'))
+                .and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
+                .map_or((None, None), |(w, h)| (Some(w), Some(h)));
+            // Transfer characteristic 16 = SMPTE ST 2084 (PQ), 18 = ARIB
+            // STD-B67 (HLG) - both are HDR transfer functions per the
+            // ISO/IEC 23001-8 registry mkvmerge reports numerically.
+            let is_hdr10 = matches!(t.properties.color_transfer_characteristics, Some(16) | Some(18));
+            // Dolby Vision-in-MKV is conventionally signaled via a block
+            // addition mapping with id_type 4. Best-effort: absent/
+            // unrecognized data means `false`, never a guessed `true`.
+            let is_dolby_vision = t
+                .properties
+                .block_addition_mappings
+                .iter()
+                .any(|m| m.id_type == Some(4));
+            let bitrate_bps = t.properties.tag_bps.as_deref().and_then(|s| s.parse::<u64>().ok());
             Some(Track {
                 id: t.id,
                 kind,
@@ -92,11 +136,20 @@ fn parse_mkvmerge_json(bytes: &[u8], path: &Path) -> Result<MediaFile, MergerErr
                 forced_flag: t.properties.forced_track,
                 fps,
                 channels: t.properties.audio_channels,
+                width,
+                height,
+                sampling_rate: t.properties.audio_sampling_frequency,
+                bits_per_sample: t.properties.audio_bits_per_sample,
+                bitrate_bps,
+                is_hdr10,
+                is_dolby_vision,
             })
         })
         .collect();
 
-    Ok(MediaFile { path: path.to_path_buf(), container: parsed.container.kind, tracks })
+    let file_size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+
+    Ok(MediaFile { path: path.to_path_buf(), container: parsed.container.kind, tracks, file_size_bytes })
 }
 
 pub fn identify(path: &Path) -> Result<MediaFile, MergerError> {
@@ -185,6 +238,16 @@ pub fn duration_secs(path: &Path) -> Result<f64, MergerError> {
     parse_duration_output(&output.stdout)
 }
 
+pub fn channel_layout_label(channels: u32) -> String {
+    match channels {
+        1 => "1.0".to_string(),
+        2 => "2.0".to_string(),
+        6 => "5.1".to_string(),
+        8 => "7.1".to_string(),
+        n => format!("{n}ch"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,8 +257,8 @@ mod tests {
         let json = br#"{
             "container": {"type": "Matroska"},
             "tracks": [
-                {"id":0,"type":"video","codec":"MPEG-4p10/AVC/h.264","properties":{"default_track":true,"forced_track":false,"default_duration":41708333}},
-                {"id":1,"type":"audio","codec":"AC-3","properties":{"default_track":true,"forced_track":false,"language":"eng","audio_channels":6}},
+                {"id":0,"type":"video","codec":"MPEG-4p10/AVC/h.264","properties":{"default_track":true,"forced_track":false,"default_duration":41708333,"pixel_dimensions":"3840x2160","color_transfer_characteristics":16,"block_addition_mappings":[{"id_type":4}]}},
+                {"id":1,"type":"audio","codec":"AC-3","properties":{"default_track":true,"forced_track":false,"language":"eng","audio_channels":6,"audio_sampling_frequency":48000,"audio_bits_per_sample":16,"tag_bps":"640000"}},
                 {"id":2,"type":"subtitles","codec":"SubRip/SRT","properties":{"default_track":false,"forced_track":false,"language":"fre","track_name":"Forced"}}
             ]
         }"#;
@@ -207,14 +270,55 @@ mod tests {
 
         assert_eq!(media.tracks[0].kind, TrackKind::Video);
         assert!((media.tracks[0].fps.unwrap() - 23.976).abs() < 0.01);
+        assert_eq!(media.tracks[0].width, Some(3840));
+        assert_eq!(media.tracks[0].height, Some(2160));
+        assert!(media.tracks[0].is_hdr10, "transfer characteristic 16 (PQ) should be detected as HDR10");
+        assert!(media.tracks[0].is_dolby_vision, "block addition id_type 4 should be detected as Dolby Vision");
 
         assert_eq!(media.tracks[1].kind, TrackKind::Audio);
         assert_eq!(media.tracks[1].channels, Some(6));
         assert_eq!(media.tracks[1].language.as_deref(), Some("eng"));
+        assert_eq!(media.tracks[1].sampling_rate, Some(48000));
+        assert_eq!(media.tracks[1].bits_per_sample, Some(16));
+        assert_eq!(media.tracks[1].bitrate_bps, Some(640000));
 
         assert_eq!(media.tracks[2].kind, TrackKind::Subtitle);
         assert_eq!(media.tracks[2].language.as_deref(), Some("fre"));
         assert_eq!(media.tracks[2].name.as_deref(), Some("Forced"));
+        assert_eq!(media.tracks[2].width, None);
+        assert!(!media.tracks[2].is_hdr10);
+        assert!(!media.tracks[2].is_dolby_vision);
+    }
+
+    #[test]
+    fn missing_optional_properties_yield_none_not_a_parse_error() {
+        let json = br#"{
+            "container": {"type": "Matroska"},
+            "tracks": [
+                {"id":0,"type":"video","codec":"AV1","properties":{"default_track":false,"forced_track":false}}
+            ]
+        }"#;
+
+        let media = parse_mkvmerge_json(json, Path::new("test.mkv")).unwrap();
+
+        assert_eq!(media.tracks[0].width, None);
+        assert_eq!(media.tracks[0].height, None);
+        assert_eq!(media.tracks[0].bitrate_bps, None);
+        assert!(!media.tracks[0].is_hdr10);
+        assert!(!media.tracks[0].is_dolby_vision);
+    }
+
+    #[test]
+    fn channel_layout_label_maps_common_counts() {
+        assert_eq!(channel_layout_label(1), "1.0");
+        assert_eq!(channel_layout_label(2), "2.0");
+        assert_eq!(channel_layout_label(6), "5.1");
+        assert_eq!(channel_layout_label(8), "7.1");
+    }
+
+    #[test]
+    fn channel_layout_label_falls_back_for_uncommon_counts() {
+        assert_eq!(channel_layout_label(3), "3ch");
     }
 
     #[test]

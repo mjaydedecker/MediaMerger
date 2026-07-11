@@ -13,3 +13,26 @@ iced = { version = "0.14", features = ["tokio"] }
 tokio = { version = "1", features = ["full"] }
 rfd = { version = "0.14", features = ["xdg-portal"] }
 dark-light = "1"
+
+[package.metadata.deb]
+name = "mediamerger"
+maintainer = "MediaMerger Contributors"
+copyright = "2026"
+extended-description = "Merge video and audio tracks from two encodes of the same movie into a single synced MKV, using audio cross-correlation to compute the mux offset."
+depends = "mkvtoolnix, ffmpeg"
+section = "utils"
+priority = "optional"
+assets = [
+    ["target/release/mediamerger", "usr/bin/", "755"],
+    ["assets/mediamerger.desktop", "usr/share/applications/", "644"],
+]
+
+[[package.metadata.generate-rpm.assets]]
+source = "target/release/mediamerger"
+dest = "/usr/bin/mediamerger"
+mode = "0755"
+
+[[package.metadata.generate-rpm.assets]]
+source = "mediamerger-app/assets/mediamerger.desktop"
+dest = "/usr/share/applications/mediamerger.desktop"
+mode = "0644"

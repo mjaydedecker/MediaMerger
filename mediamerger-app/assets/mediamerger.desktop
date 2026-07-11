@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MediaMerger
+Comment=Merge video and audio from two encodes of the same movie into a synced MKV
+Exec=mediamerger
+Terminal=false
+Categories=AudioVideo;Video;
+StartupWMClass=mediamerger

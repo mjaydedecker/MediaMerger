@@ -386,6 +386,14 @@ fn parse_r_frame_rate(bytes: &[u8]) -> Result<f64, MergerError> {
     let (num, den) = text
         .split_once('/')
         .ok_or_else(|| MergerError::Probe(format!("unexpected r_frame_rate output: {text}")))?;
+    // Defensive: some ffprobe output-format combinations have been observed
+    // to leave a trailing separator character (e.g. a stray "," from the csv
+    // writer) after the last field even with no further fields requested -
+    // confirmed against a real ffprobe 8.0.1 install returning "24/1,".
+    // Strip any trailing non-digit characters rather than trusting the
+    // output to be exactly "NUM/DEN" with nothing else.
+    let num = num.trim_end_matches(|c: char| !c.is_ascii_digit());
+    let den = den.trim_end_matches(|c: char| !c.is_ascii_digit());
     let num: f64 = num
         .parse()
         .map_err(|_| MergerError::Probe(format!("bad numerator in r_frame_rate: {text}")))?;
@@ -404,14 +412,17 @@ fn fps_within_tolerance(a: f64, b: f64) -> bool {
 
 fn parse_duration_output(bytes: &[u8]) -> Result<f64, MergerError> {
     let text = String::from_utf8_lossy(bytes);
-    text.trim()
+    let trimmed = text.trim();
+    // Same defensive trailing-artifact stripping as parse_r_frame_rate.
+    let cleaned = trimmed.trim_end_matches(|c: char| !c.is_ascii_digit());
+    cleaned
         .parse()
-        .map_err(|_| MergerError::Probe(format!("unexpected duration output: {}", text.trim())))
+        .map_err(|_| MergerError::Probe(format!("unexpected duration output: {trimmed}")))
 }
 
 fn ffprobe_video_fps(path: &Path) -> Result<f64, MergerError> {
     let output = Command::new("ffprobe")
-        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0"])
+        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "default=noprint_wrappers=1:nokey=1"])
         .arg(path)
         .output()
         .map_err(|_| MergerError::FfmpegNotFound)?;
@@ -432,7 +443,7 @@ pub fn check_framerate(file_a: &Path, file_b: &Path) -> Result<(), MergerError> 
 
 pub fn duration_secs(path: &Path) -> Result<f64, MergerError> {
     let output = Command::new("ffprobe")
-        .args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"])
+        .args(["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1"])
         .arg(path)
         .output()
         .map_err(|_| MergerError::FfmpegNotFound)?;

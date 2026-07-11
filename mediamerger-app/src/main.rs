@@ -106,6 +106,49 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+
+        Message::DetectOffset => {
+            state.offset = state::OffsetState::Detecting;
+            let (Some(file_a), Some(file_b)) = (state.file_a.clone(), state.file_b.clone()) else {
+                state.offset = state::OffsetState::NotDetected;
+                return Task::none();
+            };
+            let Some(track_a) = first_audio_track_id(&file_a) else {
+                state.offset = state::OffsetState::NotDetected;
+                return Task::none();
+            };
+            let Some(track_b) = first_audio_track_id(&file_b) else {
+                state.offset = state::OffsetState::NotDetected;
+                return Task::none();
+            };
+            Task::perform(
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                        mediamerger_core::offset::detect_offset(&file_a.path, track_a, &file_b.path, track_b)
+                    })
+                    .await
+                    .unwrap_or_else(|e| Err(mediamerger_core::error::MergerError::Probe(e.to_string())))
+                },
+                Message::OffsetDetected,
+            )
+        }
+        Message::OffsetDetected(result) => {
+            state.offset = match result {
+                Ok(r) => {
+                    state.manual_offset_input = format!("{:.3}", r.offset);
+                    state::OffsetState::Detected(r)
+                }
+                Err(_) => state::OffsetState::NotDetected,
+            };
+            Task::none()
+        }
+        Message::ManualOffsetChanged(text) => {
+            if let Ok(value) = text.parse::<f64>() {
+                state.offset = state::OffsetState::ManualOverride(value);
+            }
+            state.manual_offset_input = text;
+            Task::none()
+        }
     }
 }
 
@@ -148,4 +191,11 @@ fn apply_probe_result(
         }
         Err(e) => state.framerate_error = Some(e),
     }
+}
+
+fn first_audio_track_id(file: &mediamerger_core::probe::MediaFile) -> Option<u64> {
+    file.tracks
+        .iter()
+        .find(|t| t.kind == mediamerger_core::probe::TrackKind::Audio)
+        .map(|t| t.id)
 }

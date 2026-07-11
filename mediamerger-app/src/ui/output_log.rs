@@ -13,12 +13,18 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
     let blocking_reason = state.blocking_reason();
     let selected_count = state.tracks_a_ui.iter().filter(|t| t.selected).count() + state.tracks_b_ui.iter().filter(|t| t.selected).count();
     // Must mirror every condition AppState::to_merge_plan actually requires,
-    // including offset_resolved - omitting it would let this show "ready to
-    // merge" (button enabled) in states where to_merge_plan still returns
-    // None (e.g. no audio track found, detection failed, files swapped
-    // after a prior detection), making Merge silently no-op.
+    // including offset_resolved and both files being loaded - omitting any
+    // of these would let this show "ready to merge" (button enabled) in
+    // states where to_merge_plan still returns None (e.g. no audio track
+    // found, detection failed, files swapped after a prior detection, or
+    // only one of file_a/file_b loaded), making Merge silently no-op.
     let offset_resolved = state.resolved_offset_secs().is_some();
-    let merge_enabled = blocking_reason.is_none() && selected_count > 0 && state.output_path.is_some() && offset_resolved;
+    let merge_enabled = blocking_reason.is_none()
+        && selected_count > 0
+        && state.output_path.is_some()
+        && offset_resolved
+        && state.file_a.is_some()
+        && state.file_b.is_some();
     let merge_press = if merge_enabled { Some(Message::StartMerge) } else { None };
 
     let (ready_text, ready_color) = if merge_enabled {

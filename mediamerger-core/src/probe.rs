@@ -113,6 +113,68 @@ pub fn identify(path: &Path) -> Result<MediaFile, MergerError> {
     parse_mkvmerge_json(&output.stdout, path)
 }
 
+fn parse_r_frame_rate(bytes: &[u8]) -> Result<f64, MergerError> {
+    let text = String::from_utf8_lossy(bytes);
+    let text = text.trim();
+    let (num, den) = text
+        .split_once('/')
+        .ok_or_else(|| MergerError::Probe(format!("unexpected r_frame_rate output: {text}")))?;
+    let num: f64 = num
+        .parse()
+        .map_err(|_| MergerError::Probe(format!("bad numerator in r_frame_rate: {text}")))?;
+    let den: f64 = den
+        .parse()
+        .map_err(|_| MergerError::Probe(format!("bad denominator in r_frame_rate: {text}")))?;
+    if den == 0.0 {
+        return Err(MergerError::Probe(format!("zero denominator in r_frame_rate: {text}")));
+    }
+    Ok(num / den)
+}
+
+fn fps_within_tolerance(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 0.05
+}
+
+fn parse_duration_output(bytes: &[u8]) -> Result<f64, MergerError> {
+    let text = String::from_utf8_lossy(bytes);
+    text.trim()
+        .parse()
+        .map_err(|_| MergerError::Probe(format!("unexpected duration output: {}", text.trim())))
+}
+
+fn ffprobe_video_fps(path: &Path) -> Result<f64, MergerError> {
+    let output = Command::new("ffprobe")
+        .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0"])
+        .arg(path)
+        .output()
+        .map_err(|_| MergerError::FfmpegNotFound)?;
+    if !output.status.success() {
+        return Err(MergerError::Probe(String::from_utf8_lossy(&output.stderr).to_string()));
+    }
+    parse_r_frame_rate(&output.stdout)
+}
+
+pub fn check_framerate(file_a: &Path, file_b: &Path) -> Result<(), MergerError> {
+    let fps_a = ffprobe_video_fps(file_a)?;
+    let fps_b = ffprobe_video_fps(file_b)?;
+    if !fps_within_tolerance(fps_a, fps_b) {
+        return Err(MergerError::FramerateMismatch { file_a_fps: fps_a, file_b_fps: fps_b });
+    }
+    Ok(())
+}
+
+pub fn duration_secs(path: &Path) -> Result<f64, MergerError> {
+    let output = Command::new("ffprobe")
+        .args(["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0"])
+        .arg(path)
+        .output()
+        .map_err(|_| MergerError::FfmpegNotFound)?;
+    if !output.status.success() {
+        return Err(MergerError::Probe(String::from_utf8_lossy(&output.stderr).to_string()));
+    }
+    parse_duration_output(&output.stdout)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +205,29 @@ mod tests {
         assert_eq!(media.tracks[2].kind, TrackKind::Subtitle);
         assert_eq!(media.tracks[2].language.as_deref(), Some("fre"));
         assert_eq!(media.tracks[2].name.as_deref(), Some("Forced"));
+    }
+
+    #[test]
+    fn parses_ntsc_frame_rate_fraction() {
+        let fps = parse_r_frame_rate(b"24000/1001\n").unwrap();
+        assert!((fps - 23.976).abs() < 0.001, "got {fps}");
+    }
+
+    #[test]
+    fn parses_integer_frame_rate_fraction() {
+        let fps = parse_r_frame_rate(b"25/1\n").unwrap();
+        assert!((fps - 25.0).abs() < 0.001, "got {fps}");
+    }
+
+    #[test]
+    fn frame_rates_within_tolerance_match() {
+        assert!(fps_within_tolerance(23.976, 23.98));
+        assert!(!fps_within_tolerance(23.976, 25.0));
+    }
+
+    #[test]
+    fn parses_duration_seconds() {
+        let secs = parse_duration_output(b"7261.234000\n").unwrap();
+        assert!((secs - 7261.234).abs() < 0.001, "got {secs}");
     }
 }

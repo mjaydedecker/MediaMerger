@@ -40,6 +40,7 @@ pub struct MediaFile {
     pub container: String,
     pub tracks: Vec<Track>,
     pub file_size_bytes: u64,
+    pub duration_secs: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -52,6 +53,12 @@ struct MkvmergeJson {
 struct MkvmergeContainer {
     #[serde(rename = "type")]
     kind: String,
+    properties: Option<MkvmergeContainerProperties>,
+}
+
+#[derive(Deserialize, Default)]
+struct MkvmergeContainerProperties {
+    duration: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -148,8 +155,19 @@ fn parse_mkvmerge_json(bytes: &[u8], path: &Path) -> Result<MediaFile, MergerErr
         .collect();
 
     let file_size_bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let duration_secs = parsed
+        .container
+        .properties
+        .and_then(|p| p.duration)
+        .map(|ns| ns as f64 / 1_000_000_000.0);
 
-    Ok(MediaFile { path: path.to_path_buf(), container: parsed.container.kind, tracks, file_size_bytes })
+    Ok(MediaFile {
+        path: path.to_path_buf(),
+        container: parsed.container.kind,
+        tracks,
+        file_size_bytes,
+        duration_secs,
+    })
 }
 
 pub fn identify(path: &Path) -> Result<MediaFile, MergerError> {
@@ -255,7 +273,7 @@ mod tests {
     #[test]
     fn parses_video_audio_subtitle_tracks() {
         let json = br#"{
-            "container": {"type": "Matroska"},
+            "container": {"type": "Matroska", "properties": {"duration": 5072000000000}},
             "tracks": [
                 {"id":0,"type":"video","codec":"MPEG-4p10/AVC/h.264","properties":{"default_track":true,"forced_track":false,"default_duration":41708333,"pixel_dimensions":"3840x2160","color_transfer_characteristics":16,"block_addition_mappings":[{"id_type":4}]}},
                 {"id":1,"type":"audio","codec":"AC-3","properties":{"default_track":true,"forced_track":false,"language":"eng","audio_channels":6,"audio_sampling_frequency":48000,"audio_bits_per_sample":16,"tag_bps":"640000"}},
@@ -266,6 +284,7 @@ mod tests {
         let media = parse_mkvmerge_json(json, Path::new("test.mkv")).unwrap();
 
         assert_eq!(media.container, "Matroska");
+        assert!((media.duration_secs.unwrap() - 5072.0).abs() < 0.001, "got {:?}", media.duration_secs);
         assert_eq!(media.tracks.len(), 3);
 
         assert_eq!(media.tracks[0].kind, TrackKind::Video);
@@ -288,6 +307,20 @@ mod tests {
         assert_eq!(media.tracks[2].width, None);
         assert!(!media.tracks[2].is_hdr10);
         assert!(!media.tracks[2].is_dolby_vision);
+    }
+
+    #[test]
+    fn missing_container_duration_yields_none() {
+        let json = br#"{
+            "container": {"type": "Matroska"},
+            "tracks": [
+                {"id":0,"type":"video","codec":"AV1","properties":{"default_track":false,"forced_track":false}}
+            ]
+        }"#;
+
+        let media = parse_mkvmerge_json(json, Path::new("test.mkv")).unwrap();
+
+        assert_eq!(media.duration_secs, None);
     }
 
     #[test]

@@ -287,6 +287,7 @@ mod tests {
             container: "Matroska".to_string(),
             tracks,
             file_size_bytes: 0,
+            duration_secs: None,
         }
     }
 

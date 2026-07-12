@@ -175,7 +175,7 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
 
         Message::DetectOffset => {
-            if state.framerate_error.is_some() {
+            if state.framerate_error.is_some() && !state.framerate_override {
                 return Task::none();
             }
             state.offset = state::OffsetState::Detecting;
@@ -412,6 +412,7 @@ fn apply_probe_result(
     result: Result<mediamerger_core::probe::MediaFile, mediamerger_core::error::MergerError>,
     is_file_a: bool,
 ) {
+    state.framerate_override = false;
     match result {
         Ok(media_file) => {
             if is_file_a {
@@ -437,4 +438,62 @@ fn first_audio_track_id(file: &mediamerger_core::probe::MediaFile) -> Option<u64
         .iter()
         .find(|t| t.kind == mediamerger_core::probe::TrackKind::Audio)
         .map(|t| t.id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mediamerger_core::probe::{MediaFile, Track, TrackKind};
+    use std::path::PathBuf;
+
+    fn track(id: u64, kind: TrackKind) -> Track {
+        Track {
+            id,
+            kind,
+            codec: "test".to_string(),
+            language: None,
+            name: None,
+            default_flag: false,
+            forced_flag: false,
+            fps: None,
+            channels: None,
+            width: None,
+            height: None,
+            sampling_rate: None,
+            bits_per_sample: None,
+            bitrate_bps: None,
+            is_hdr10: false,
+            is_dolby_vision: false,
+        }
+    }
+
+    fn media_file(path: &str) -> MediaFile {
+        MediaFile {
+            path: PathBuf::from(path),
+            container: "Matroska".to_string(),
+            tracks: vec![track(0, TrackKind::Video)],
+            file_size_bytes: 0,
+            duration_secs: None,
+        }
+    }
+
+    #[test]
+    fn apply_probe_result_resets_framerate_override_even_if_previously_true() {
+        let mut state = AppState::default();
+        state.framerate_override = true;
+
+        apply_probe_result(&mut state, Ok(media_file("a.mkv")), true);
+
+        assert!(!state.framerate_override, "a fresh probe result must clear any prior override");
+    }
+
+    #[test]
+    fn apply_probe_result_resets_framerate_override_on_probe_error_too() {
+        let mut state = AppState::default();
+        state.framerate_override = true;
+
+        apply_probe_result(&mut state, Err(mediamerger_core::error::MergerError::Probe("boom".to_string())), true);
+
+        assert!(!state.framerate_override, "a failed probe must also clear a prior override, not just a successful one");
+    }
 }

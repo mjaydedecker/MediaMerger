@@ -289,7 +289,8 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
             .style(detect_style)
             .on_press_maybe(detect_offset_press),
     ]
-    .spacing(12);
+    .spacing(12)
+    .align_y(iced::alignment::Vertical::Center);
 
     offset_row = offset_row.push(iced::widget::space::horizontal());
     if let Some(right_side) = right_of_offset_row {

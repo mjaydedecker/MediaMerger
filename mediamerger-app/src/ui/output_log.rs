@@ -90,7 +90,8 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
                 .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
             button(row![icons::folder(palette.fg), text("Browse")].spacing(6)).style(btn_style).on_press(Message::PickOutput),
         ]
-        .spacing(10),
+        .spacing(10)
+        .align_y(iced::alignment::Vertical::Center),
     ]
     .spacing(5)
     .width(Length::Fill);
@@ -130,7 +131,8 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
                 .style(merge_btn_style)
                 .on_press_maybe(merge_press),
         ]
-        .spacing(10),
+        .spacing(10)
+        .align_y(iced::alignment::Vertical::Center),
     ]
     .spacing(7)
     .align_x(iced::alignment::Horizontal::Right);

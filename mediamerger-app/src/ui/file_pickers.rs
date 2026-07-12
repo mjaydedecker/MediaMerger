@@ -57,11 +57,6 @@ fn file_card<'a>(
     on_browse: Message,
     palette: &Palette,
 ) -> Element<'a, Message> {
-    let path_text = match file {
-        Some(f) => f.path.display().to_string(),
-        None => "No file selected".to_string(),
-    };
-
     let browse_press = if picking { None } else { Some(on_browse) };
 
     let btn_bg = palette.btn_bg;
@@ -90,30 +85,53 @@ fn file_card<'a>(
                 .on_press_maybe(browse_press),
         ]
         .spacing(10),
-        row![
-            icons::video(palette.dim),
-            // Fill + wrap rather than letting the text force the row (and
-            // therefore this whole card) wider to fit a long path on one
-            // line - without this, a long File A path could grow File A's
-            // card at File B's expense when the window is resized, since
-            // neither card had an explicit width to split the row evenly.
-            // WordOrGlyph is required, not just Fill width: iced's default
-            // Word wrapping treats an unbroken path (no spaces) as one
-            // indivisible unit and lets it overflow the row rather than
-            // breaking it - WordOrGlyph falls back to a mid-word break when
-            // a "word" can't fit on a line by itself.
-            text(path_text)
-                .size(12)
-                .color(palette.fg)
-                .width(Length::Fill)
-                .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
-        ]
-        .spacing(8),
     ]
     .spacing(10);
 
-    if let Some(f) = file {
-        card = card.push(file_chips(f, palette));
+    match file {
+        Some(f) => {
+            card = card.push(
+                row![
+                    icons::video(palette.dim),
+                    // Fill + wrap rather than letting the text force the row (and
+                    // therefore this whole card) wider to fit a long path on one
+                    // line - without this, a long File A path could grow File A's
+                    // card at File B's expense when the window is resized, since
+                    // neither card had an explicit width to split the row evenly.
+                    // WordOrGlyph is required, not just Fill width: iced's default
+                    // Word wrapping treats an unbroken path (no spaces) as one
+                    // indivisible unit and lets it overflow the row rather than
+                    // breaking it - WordOrGlyph falls back to a mid-word break when
+                    // a "word" can't fit on a line by itself.
+                    text(f.path.display().to_string())
+                        .size(12)
+                        .color(palette.fg)
+                        .width(Length::Fill)
+                        .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
+                ]
+                .spacing(8),
+            );
+            card = card.push(file_chips(f, palette));
+        }
+        None => {
+            // iced's container Border has no dash-pattern field (solid only)
+            // - approximated with a solid border, consistent with this
+            // project's established practice of documenting approximations
+            // over reaching for a Canvas overlay for a minor cosmetic detail.
+            let view_bg = palette.view;
+            let border_color = palette.border;
+            card = card.push(
+                container(text("No file selected — click Browse to load").size(12).color(palette.faint))
+                    .padding(16)
+                    .width(Length::Fill)
+                    .align_x(iced::alignment::Horizontal::Center)
+                    .style(move |_theme| container::Style {
+                        background: Some(view_bg.into()),
+                        border: iced::Border { color: border_color, width: 1.0, radius: 8.0.into() },
+                        ..Default::default()
+                    }),
+            );
+        }
     }
 
     // Same reasoning as `chip`: copy the Colors out so the closure doesn't

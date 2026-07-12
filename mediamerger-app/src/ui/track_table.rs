@@ -97,9 +97,20 @@ fn file_column<'a>(
     // side) could unbalance the two columns on resize, the same class of
     // bug fixed for the file-picker cards above.
     match file {
-        None => container(text("No file loaded").color(palette.faint))
-            .width(Length::FillPortion(1))
-            .into(),
+        None => {
+            let card_bg = palette.card;
+            let border_color = palette.border;
+            container(text("No file loaded").size(12).color(palette.faint))
+                .width(Length::FillPortion(1))
+                .padding(16)
+                .align_x(iced::alignment::Horizontal::Center)
+                .style(move |_theme| container::Style {
+                    background: Some(card_bg.into()),
+                    border: iced::Border { color: border_color, width: 1.0, radius: 12.0.into() },
+                    ..Default::default()
+                })
+                .into()
+        }
         Some(f) => {
             let mut col = column![].spacing(0);
             let separator_color = palette.separator;

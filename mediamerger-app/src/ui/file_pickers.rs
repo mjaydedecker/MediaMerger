@@ -159,6 +159,13 @@ fn file_card<'a>(
 }
 
 fn framerate_banner<'a>(state: &'a AppState, palette: &Palette) -> Option<Element<'a, Message>> {
+    // A generic probe failure (e.g. a cancelled file dialog, or ffprobe
+    // choking on an unsupported file) is unrelated to a framerate
+    // mismatch - render it plainly, with no "audio speed matches"
+    // override checkbox, which would be nonsensical here.
+    if let Some(err) = &state.probe_error {
+        return Some(row![icons::warning(palette.danger_fg), text(err.to_string()).color(palette.danger_fg)].spacing(8).into());
+    }
     if let Some(err) = &state.framerate_error {
         let warning_row = row![icons::warning(palette.danger_fg), text(err.to_string()).color(palette.danger_fg)].spacing(8);
         let override_checkbox = checkbox(state.framerate_override)

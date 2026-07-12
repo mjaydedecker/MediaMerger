@@ -449,6 +449,7 @@ fn apply_probe_result(
     state.framerate_override = false;
     match result {
         Ok(media_file) => {
+            state.probe_error = None;
             if is_file_a {
                 AppState::sync_track_ui_len(&media_file.tracks, &mut state.tracks_a_ui);
                 state.file_a = Some(media_file);
@@ -463,7 +464,14 @@ fn apply_probe_result(
                 }
             }
         }
-        Err(e) => state.framerate_error = Some(e),
+        // A failed probe attempt (e.g. a cancelled file dialog, or ffprobe
+        // choking on an unsupported file) is a different problem from a
+        // genuine framerate mismatch between two loaded files - it must not
+        // land in framerate_error, which the UI unconditionally renders
+        // with the "I know the audio speed matches" override checkbox.
+        // file_a/file_b are untouched here, so any real framerate_error
+        // already set from a prior successful pairing stays valid as-is.
+        Err(e) => state.probe_error = Some(e),
     }
 }
 
@@ -529,6 +537,42 @@ mod tests {
         apply_probe_result(&mut state, Err(mediamerger_core::error::MergerError::Probe("boom".to_string())), true);
 
         assert!(!state.framerate_override, "a failed probe must also clear a prior override, not just a successful one");
+    }
+
+    #[test]
+    fn apply_probe_result_sets_probe_error_not_framerate_error_on_failure() {
+        let mut state = AppState::default();
+
+        apply_probe_result(&mut state, Err(mediamerger_core::error::MergerError::Probe("no file selected".to_string())), true);
+
+        assert!(state.probe_error.is_some(), "a failed probe must surface as probe_error");
+        assert!(
+            state.framerate_error.is_none(),
+            "a generic probe failure (e.g. a cancelled file dialog) must not masquerade as a framerate mismatch"
+        );
+    }
+
+    #[test]
+    fn apply_probe_result_preserves_existing_framerate_error_on_later_probe_failure() {
+        let mut state = AppState::default();
+        state.framerate_error = Some(mediamerger_core::error::MergerError::FramerateMismatch { file_a_fps: 23.976, file_b_fps: 25.0 });
+
+        apply_probe_result(&mut state, Err(mediamerger_core::error::MergerError::Probe("no file selected".to_string())), false);
+
+        assert!(
+            state.framerate_error.is_some(),
+            "file_a/file_b are untouched on a probe failure, so an already-valid framerate mismatch must stay reported"
+        );
+    }
+
+    #[test]
+    fn apply_probe_result_clears_stale_probe_error_on_success() {
+        let mut state = AppState::default();
+        state.probe_error = Some(mediamerger_core::error::MergerError::Probe("no file selected".to_string()));
+
+        apply_probe_result(&mut state, Ok(media_file("a.mkv")), true);
+
+        assert!(state.probe_error.is_none(), "a successful probe must clear a stale probe_error from an earlier failed attempt");
     }
 
     #[test]

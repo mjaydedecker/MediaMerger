@@ -63,6 +63,7 @@ pub struct AppState {
     pub is_dark: bool,
     pub accent_hex: String,
     pub offset: OffsetState,
+    pub last_detected: Option<OffsetResult>,
     pub waveform: Option<WaveformEnvelope>,
     pub manual_offset_input: String,
     pub detect_offset_error: Option<String>,
@@ -94,6 +95,7 @@ impl Default for AppState {
             is_dark: crate::detect_is_dark(),
             accent_hex: crate::detect_accent_color(),
             offset: OffsetState::NotDetected,
+            last_detected: None,
             waveform: None,
             manual_offset_input: String::new(),
             detect_offset_error: None,
@@ -134,6 +136,7 @@ pub enum Message {
     OffsetDetected(Result<OffsetResult, MergerError>),
     WaveformExtracted(Result<WaveformEnvelope, MergerError>),
     ManualOffsetChanged(String),
+    UseDetectedOffset,
     ChaptersChoiceChanged(ChaptersChoice),
     ToggleAttachmentsA(bool),
     ToggleAttachmentsB(bool),
@@ -145,6 +148,7 @@ pub enum Message {
     MergeEventReceived(Option<MuxUiEvent>),
     BinariesChecked(Vec<&'static str>),
     ToggleLogExpanded,
+    NewMerge,
 }
 
 #[derive(Debug, Clone, Default)]

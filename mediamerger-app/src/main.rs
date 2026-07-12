@@ -209,6 +209,7 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
         Message::OffsetDetected(result) => match result {
             Ok(r) => {
                 state.manual_offset_input = format!("{:.3}", r.offset);
+                state.last_detected = Some(r.clone());
                 let (file_a, file_b) = (state.file_a.clone(), state.file_b.clone());
                 let (Some(file_a), Some(file_b)) = (file_a, file_b) else {
                     state.offset = state::OffsetState::Detected(r);
@@ -253,6 +254,13 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 state.offset = state::OffsetState::ManualOverride(value);
             }
             state.manual_offset_input = text;
+            Task::none()
+        }
+        Message::UseDetectedOffset => {
+            if let Some(r) = state.last_detected.clone() {
+                state.manual_offset_input = format!("{:.3}", r.offset);
+                state.offset = state::OffsetState::Detected(r);
+            }
             Task::none()
         }
 
@@ -375,6 +383,24 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.log_expanded = !state.log_expanded;
             Task::none()
         }
+        Message::NewMerge => {
+            // Disabled while a merge is running (mirrors the merge_receiver
+            // guard StartMerge already uses) - resetting file_a/file_b/log
+            // etc. while the background worker thread is still sending
+            // MergeEventReceived events would let those events repopulate
+            // the just-reset UI mid-reset.
+            if state.merge_receiver.is_some() {
+                return Task::none();
+            }
+            let is_dark = state.is_dark;
+            let accent_hex = state.accent_hex.clone();
+            let missing_binaries = state.missing_binaries.clone();
+            *state = AppState::default();
+            state.is_dark = is_dark;
+            state.accent_hex = accent_hex;
+            state.missing_binaries = missing_binaries;
+            Task::none()
+        }
     }
 }
 
@@ -495,5 +521,78 @@ mod tests {
         apply_probe_result(&mut state, Err(mediamerger_core::error::MergerError::Probe("boom".to_string())), true);
 
         assert!(!state.framerate_override, "a failed probe must also clear a prior override, not just a successful one");
+    }
+
+    #[test]
+    fn use_detected_offset_restores_last_detected_after_manual_override() {
+        let mut state = AppState::default();
+        let detected = mediamerger_core::offset::OffsetResult {
+            early_offset: 2.34,
+            late_offset: 2.36,
+            consistency: mediamerger_core::offset::Consistency::Consistent,
+            confidence: 8.0,
+            offset: 2.35,
+            early_window_start: 0.0,
+            window_duration: 180.0,
+        };
+        state.last_detected = Some(detected);
+        state.offset = state::OffsetState::ManualOverride(9.999);
+        state.manual_offset_input = "9.999".to_string();
+
+        update(&mut state, Message::UseDetectedOffset);
+
+        match state.offset {
+            state::OffsetState::Detected(r) => assert_eq!(r.offset, 2.35),
+            _ => panic!("expected offset to be restored to Detected"),
+        }
+        assert_eq!(state.manual_offset_input, "2.350");
+    }
+
+    #[test]
+    fn use_detected_offset_is_noop_when_nothing_was_ever_detected() {
+        let mut state = AppState::default();
+        state.offset = state::OffsetState::ManualOverride(1.0);
+        state.manual_offset_input = "1.000".to_string();
+
+        update(&mut state, Message::UseDetectedOffset);
+
+        match state.offset {
+            state::OffsetState::ManualOverride(v) => assert_eq!(v, 1.0),
+            _ => panic!("expected offset to remain ManualOverride when last_detected is None"),
+        }
+    }
+
+    #[test]
+    fn new_merge_resets_state_but_preserves_environment_fields() {
+        let mut state = AppState::default();
+        state.is_dark = true;
+        state.accent_hex = "#123456".to_string();
+        state.missing_binaries = vec!["ffmpeg"];
+        state.file_a = Some(media_file("a.mkv"));
+        state.output_path = Some(PathBuf::from("out.mkv"));
+        state.attachments_a = false;
+        state.offset = state::OffsetState::ManualOverride(5.0);
+
+        update(&mut state, Message::NewMerge);
+
+        assert!(state.file_a.is_none());
+        assert!(state.output_path.is_none());
+        assert!(state.attachments_a, "attachments_a should reset to its default (true)");
+        assert!(matches!(state.offset, state::OffsetState::NotDetected));
+        assert!(state.is_dark, "is_dark must survive the reset");
+        assert_eq!(state.accent_hex, "#123456");
+        assert_eq!(state.missing_binaries, vec!["ffmpeg"]);
+    }
+
+    #[test]
+    fn new_merge_is_noop_while_a_merge_is_running() {
+        let mut state = AppState::default();
+        state.file_a = Some(media_file("a.mkv"));
+        let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<state::MuxUiEvent>();
+        state.merge_receiver = Some(std::sync::Arc::new(tokio::sync::Mutex::new(rx)));
+
+        update(&mut state, Message::NewMerge);
+
+        assert!(state.file_a.is_some(), "state must not reset while a merge is in flight");
     }
 }

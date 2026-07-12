@@ -3,6 +3,7 @@ name = "mediamerger-app"
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+description = "Merge video and audio tracks from two encodes of the same movie into a single synced MKV, using audio cross-correlation to compute the mux offset."
 
 [[bin]]
 name = "mediamerger"

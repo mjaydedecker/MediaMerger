@@ -452,6 +452,12 @@ fn apply_probe_result(
             state.probe_error = None;
             if is_file_a {
                 AppState::sync_track_ui_len(&media_file.tracks, &mut state.tracks_a_ui);
+                // Only fill in a default - never override a path the user
+                // already chose (via Browse, or a default from an earlier
+                // File A that they've since customized).
+                if state.output_path.is_none() {
+                    state.output_path = state::default_output_path(&media_file.path);
+                }
                 state.file_a = Some(media_file);
             } else {
                 AppState::sync_track_ui_len(&media_file.tracks, &mut state.tracks_b_ui);
@@ -527,6 +533,25 @@ mod tests {
         apply_probe_result(&mut state, Ok(media_file("a.mkv")), true);
 
         assert!(!state.framerate_override, "a fresh probe result must clear any prior override");
+    }
+
+    #[test]
+    fn apply_probe_result_sets_default_output_path_from_file_a() {
+        let mut state = AppState::default();
+
+        apply_probe_result(&mut state, Ok(media_file("/videos/Movie.2024.mkv")), true);
+
+        assert_eq!(state.output_path, Some(PathBuf::from("/videos/Movie.2024 — Merged.mkv")));
+    }
+
+    #[test]
+    fn apply_probe_result_does_not_overwrite_an_existing_output_path() {
+        let mut state = AppState::default();
+        state.output_path = Some(PathBuf::from("/custom/chosen-by-user.mkv"));
+
+        apply_probe_result(&mut state, Ok(media_file("/videos/Movie.2024.mkv")), true);
+
+        assert_eq!(state.output_path, Some(PathBuf::from("/custom/chosen-by-user.mkv")));
     }
 
     #[test]

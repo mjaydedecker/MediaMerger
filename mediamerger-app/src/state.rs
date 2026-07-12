@@ -45,6 +45,16 @@ pub fn confidence_quality_label(confidence: f32) -> &'static str {
     if confidence >= 3.0 { "high" } else { "low" }
 }
 
+/// File A's own filename and directory, unchanged, with a " — Merged.mkv"
+/// postfix - not an attempt at title/year cleanup of a messy release-scene
+/// filename, just the literal stem plus a postfix, matching the mockup's
+/// own naming convention.
+pub fn default_output_path(file_a_path: &std::path::Path) -> Option<PathBuf> {
+    let stem = file_a_path.file_stem()?.to_string_lossy().into_owned();
+    let parent = file_a_path.parent()?;
+    Some(parent.join(format!("{stem} — Merged.mkv")))
+}
+
 #[derive(Debug, Clone)]
 pub enum MuxUiEvent {
     Progress(f32),
@@ -455,5 +465,25 @@ mod tests {
         assert_eq!(confidence_quality_label(3.0), "high");
         assert_eq!(confidence_quality_label(2.99), "low");
         assert_eq!(confidence_quality_label(2.1), "low");
+    }
+
+    #[test]
+    fn default_output_path_appends_postfix_to_file_a_stem_in_place() {
+        let path = default_output_path(std::path::Path::new("/home/matt/Videos/Movie.2024.mkv")).expect("should compute a default");
+        assert_eq!(path, PathBuf::from("/home/matt/Videos/Movie.2024 — Merged.mkv"));
+    }
+
+    #[test]
+    fn default_output_path_does_not_attempt_title_cleanup() {
+        // Literal stem, dots and all - no scene-release filename parsing.
+        let path = default_output_path(std::path::Path::new("/x/Evil.Dead.II.1987.UHD.BluRay.x265-GROUP.mkv")).expect("should compute a default");
+        assert_eq!(path, PathBuf::from("/x/Evil.Dead.II.1987.UHD.BluRay.x265-GROUP — Merged.mkv"));
+    }
+
+    #[test]
+    fn default_output_path_none_for_root_path() {
+        // "/" has no filename component at all, so file_stem() is None -
+        // exercises the ? early-return rather than a real file dialog path.
+        assert!(default_output_path(std::path::Path::new("/")).is_none());
     }
 }

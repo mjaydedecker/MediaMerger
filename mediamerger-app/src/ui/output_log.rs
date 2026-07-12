@@ -94,12 +94,42 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
     .spacing(5)
     .width(Length::Fill);
 
+    let merge_running = state.merge_receiver.is_some();
+    let new_merge_press = if merge_running { None } else { Some(Message::NewMerge) };
+
+    let border_color = palette.border;
+    let fg = palette.fg;
+    let new_merge_style = move |_theme: &_, status: button::Status| {
+        let base = button::Style {
+            background: None,
+            text_color: fg,
+            border: iced::Border { color: border_color, width: 1.0, radius: 999.0.into() },
+            ..Default::default()
+        };
+        match status {
+            button::Status::Hovered => button::Style { background: Some(btn_bg.into()), ..base },
+            button::Status::Disabled => button::Style {
+                text_color: base.text_color.scale_alpha(0.5),
+                border: iced::Border { color: base.border.color.scale_alpha(0.5), ..base.border },
+                ..base
+            },
+            _ => base,
+        }
+    };
+
     let merge_column = column![
         text(ready_text).size(12).color(ready_color),
-        button(row![icons::layers(if merge_enabled { accent_text } else { faint }), text("Merge")].spacing(9))
-            .padding([12, 30])
-            .style(merge_btn_style)
-            .on_press_maybe(merge_press),
+        row![
+            button(row![icons::refresh(fg), text("New merge")].spacing(7))
+                .padding([11, 20])
+                .style(new_merge_style)
+                .on_press_maybe(new_merge_press),
+            button(row![icons::layers(if merge_enabled { accent_text } else { faint }), text("Merge")].spacing(9))
+                .padding([12, 30])
+                .style(merge_btn_style)
+                .on_press_maybe(merge_press),
+        ]
+        .spacing(10),
     ]
     .spacing(7)
     .align_x(iced::alignment::Horizontal::Right);

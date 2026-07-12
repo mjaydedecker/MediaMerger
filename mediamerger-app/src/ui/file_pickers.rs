@@ -97,7 +97,16 @@ fn file_card<'a>(
             // line - without this, a long File A path could grow File A's
             // card at File B's expense when the window is resized, since
             // neither card had an explicit width to split the row evenly.
-            text(path_text).size(12).color(palette.fg).width(Length::Fill),
+            // WordOrGlyph is required, not just Fill width: iced's default
+            // Word wrapping treats an unbroken path (no spaces) as one
+            // indivisible unit and lets it overflow the row rather than
+            // breaking it - WordOrGlyph falls back to a mid-word break when
+            // a "word" can't fit on a line by itself.
+            text(path_text)
+                .size(12)
+                .color(palette.fg)
+                .width(Length::Fill)
+                .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
         ]
         .spacing(8),
     ]
@@ -118,6 +127,10 @@ fn file_card<'a>(
         // text could dominate the row's width on resize.
         .width(Length::FillPortion(1))
         .padding(15)
+        // Defense-in-depth: even with WordOrGlyph wrapping above, clip
+        // anything that still doesn't fit rather than letting it render
+        // outside the card's rounded border.
+        .clip(true)
         .style(move |_theme| container::Style {
             background: Some(card_bg.into()),
             border: iced::Border { color: border_color, width: 1.0, radius: 12.0.into() },

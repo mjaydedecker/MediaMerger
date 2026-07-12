@@ -78,7 +78,15 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
     let output_row = column![
         text("OUTPUT FILE").size(10).color(palette.faint),
         row![
-            text(output_label).size(12).color(palette.fg).width(Length::Fill),
+            // WordOrGlyph: an unbroken output path (no spaces) would
+            // otherwise overflow the row under iced's default Word
+            // wrapping, the same issue fixed for the File A/B path text in
+            // file_pickers.rs.
+            text(output_label)
+                .size(12)
+                .color(palette.fg)
+                .width(Length::Fill)
+                .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
             button(row![icons::folder(palette.fg), text("Browse")].spacing(6)).style(btn_style).on_press(Message::PickOutput),
         ]
         .spacing(10),

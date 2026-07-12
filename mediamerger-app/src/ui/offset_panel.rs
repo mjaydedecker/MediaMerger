@@ -260,10 +260,34 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
             selection: selection_color,
         });
 
+    let detect_bg = palette.accent_soft;
+    let detect_fg = palette.accent_fg;
+    let detect_accent = palette.accent;
+    let detect_style = move |_theme: &_, status: button::Status| {
+        let base = button::Style {
+            background: Some(detect_bg.into()),
+            text_color: detect_fg,
+            border: iced::Border { color: iced::Color::TRANSPARENT, width: 1.0, radius: 8.0.into() },
+            ..Default::default()
+        };
+        match status {
+            button::Status::Hovered => button::Style { border: iced::Border { color: detect_accent, ..base.border }, ..base },
+            button::Status::Disabled => button::Style {
+                background: base.background.map(|b| b.scale_alpha(0.5)),
+                text_color: base.text_color.scale_alpha(0.5),
+                ..base
+            },
+            _ => base,
+        }
+    };
+
     let mut offset_row = row![
         text("Offset").size(12).color(palette.dim),
         offset_input,
-        button(row![icons::sparkle(palette.accent_fg), text("Detect offset")].spacing(7)).on_press_maybe(detect_offset_press),
+        button(row![icons::sparkle(detect_fg), text("Detect offset")].spacing(7))
+            .padding([8, 14])
+            .style(detect_style)
+            .on_press_maybe(detect_offset_press),
     ]
     .spacing(12);
 

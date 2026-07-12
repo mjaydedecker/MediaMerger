@@ -135,7 +135,7 @@ fn waveform_bars(envelope: &WaveformEnvelope, offset_secs: f64, palette: &Palett
 }
 
 pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> {
-    let detect_offset_press = if state.framerate_error.is_some() { None } else { Some(Message::DetectOffset) };
+    let detect_offset_press = if state.framerate_error.is_some() && !state.framerate_override { None } else { Some(Message::DetectOffset) };
 
     let mut col = column![
         status_banner(state, palette),

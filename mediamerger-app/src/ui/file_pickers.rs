@@ -1,7 +1,7 @@
 use crate::state::{AppState, Message};
 use crate::theme::Palette;
 use crate::ui::icons;
-use iced::widget::{button, column, container, row, text};
+use iced::widget::{button, checkbox, column, container, row, text};
 use iced::{Element, Length};
 use mediamerger_core::probe::{MediaFile, TrackKind};
 
@@ -128,11 +128,11 @@ fn file_card<'a>(
 
 fn framerate_banner<'a>(state: &'a AppState, palette: &Palette) -> Option<Element<'a, Message>> {
     if let Some(err) = &state.framerate_error {
-        return Some(
-            row![icons::warning(palette.danger_fg), text(err.to_string()).color(palette.danger_fg)]
-                .spacing(8)
-                .into(),
-        );
+        let warning_row = row![icons::warning(palette.danger_fg), text(err.to_string()).color(palette.danger_fg)].spacing(8);
+        let override_checkbox = checkbox(state.framerate_override)
+            .label("I know the audio speed matches — continue anyway")
+            .on_toggle(Message::FramerateOverrideToggled);
+        return Some(column![warning_row, override_checkbox].spacing(6).into());
     }
     if state.file_a.is_some() && state.file_b.is_some() {
         // Both files present and framerate_error is None means

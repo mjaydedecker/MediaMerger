@@ -49,15 +49,24 @@ missing.
 
 ## Installation
 
-### From a release package (Debian/Ubuntu)
+Prebuilt `.deb` and `.rpm` packages are attached to each
+[release](https://github.com/mjaydedecker/MediaMerger/releases).
+
+### Debian/Ubuntu
 
 ```bash
 sudo apt install ./mediamerger_0.1.0-1_amd64.deb
 ```
 
-This also installs the `.desktop` entry and app icon into the standard
-locations, so MediaMerger shows up in GNOME's app grid/Activities like any
-other installed app.
+### Fedora/openSUSE
+
+```bash
+sudo rpm -i mediamerger-app-0.1.0-1.x86_64.rpm
+```
+
+Either package also installs the `.desktop` entry and app icon into the
+standard locations, so MediaMerger shows up in GNOME's app grid/Activities
+like any other installed app.
 
 ### From source
 
@@ -71,14 +80,17 @@ cargo build --release
 ./target/release/mediamerger
 ```
 
-To build a `.deb` package yourself:
+To build a package yourself:
 
 ```bash
+# .deb
 cargo install cargo-deb
-cargo deb -p mediamerger-app
-```
+cargo deb -p mediamerger-app          # -> target/debian/
 
-The resulting package is written to `target/debian/`.
+# .rpm
+cargo install cargo-generate-rpm
+cargo generate-rpm -p mediamerger-app # -> target/generate-rpm/
+```
 
 ## Usage
 

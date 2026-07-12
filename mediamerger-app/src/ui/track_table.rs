@@ -65,17 +65,19 @@ fn track_row<'a>(
     }
 
     let def_style = if ui.default_flag { palette.accent_soft } else { palette.chip_bg };
+    let def_text = if ui.default_flag { palette.accent_fg } else { palette.dim };
     let forced_style = if ui.forced_flag { palette.accent_soft } else { palette.chip_bg };
+    let forced_text = if ui.forced_flag { palette.accent_fg } else { palette.dim };
 
     row![
         checkbox(ui.selected).on_toggle(move |_| on_toggle(idx)),
         kind_icon,
         info.width(Length::Fill),
         button(text("Default").size(10))
-            .style(move |_theme, _status| button::Style { background: Some(def_style.into()), ..Default::default() })
+            .style(move |_theme, _status| button::Style { background: Some(def_style.into()), text_color: def_text, ..Default::default() })
             .on_press(on_default(idx, !ui.default_flag)),
         button(text("Forced").size(10))
-            .style(move |_theme, _status| button::Style { background: Some(forced_style.into()), ..Default::default() })
+            .style(move |_theme, _status| button::Style { background: Some(forced_style.into()), text_color: forced_text, ..Default::default() })
             .on_press(on_forced(idx, !ui.forced_flag)),
     ]
     .spacing(11)

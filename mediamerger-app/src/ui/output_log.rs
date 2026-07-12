@@ -41,8 +41,9 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
 
     let btn_bg = palette.btn_bg;
     let btn_hover = palette.btn_hover;
+    let btn_text = palette.fg;
     let btn_style = move |_theme: &_, status: button::Status| {
-        let base = button::Style { background: Some(btn_bg.into()), ..Default::default() };
+        let base = button::Style { background: Some(btn_bg.into()), text_color: btn_text, ..Default::default() };
         match status {
             button::Status::Hovered => button::Style { background: Some(btn_hover.into()), ..base },
             // Mirror iced_widget::button's own `disabled()` helper: scale both

@@ -61,12 +61,13 @@ fn file_card<'a>(
 
     let btn_bg = palette.btn_bg;
     let btn_hover = palette.btn_hover;
+    let fg = palette.fg;
     let mut card = column![
         row![
             text(label).size(13).color(palette.fg),
             button(row![icons::folder(palette.fg), text("Browse")].spacing(6))
                 .style(move |_theme, status| {
-                    let base = button::Style { background: Some(btn_bg.into()), ..Default::default() };
+                    let base = button::Style { background: Some(btn_bg.into()), text_color: fg, ..Default::default() };
                     match status {
                         button::Status::Hovered => {
                             button::Style { background: Some(btn_hover.into()), ..base }

@@ -66,8 +66,14 @@ fn file_card<'a>(
         row![
             text(label).size(13).color(palette.fg).width(Length::Fill),
             button(row![icons::folder(palette.fg), text("Browse")].spacing(6))
+                .padding([6, 11])
                 .style(move |_theme, status| {
-                    let base = button::Style { background: Some(btn_bg.into()), text_color: fg, ..Default::default() };
+                    let base = button::Style {
+                        background: Some(btn_bg.into()),
+                        text_color: fg,
+                        border: iced::Border { radius: 7.0.into(), ..Default::default() },
+                        ..Default::default()
+                    };
                     match status {
                         button::Status::Hovered => {
                             button::Style { background: Some(btn_hover.into()), ..base }

@@ -43,7 +43,12 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
     let btn_hover = palette.btn_hover;
     let btn_text = palette.fg;
     let btn_style = move |_theme: &_, status: button::Status| {
-        let base = button::Style { background: Some(btn_bg.into()), text_color: btn_text, ..Default::default() };
+        let base = button::Style {
+            background: Some(btn_bg.into()),
+            text_color: btn_text,
+            border: iced::Border { radius: 8.0.into(), ..Default::default() },
+            ..Default::default()
+        };
         match status {
             button::Status::Hovered => button::Style { background: Some(btn_hover.into()), ..base },
             // Mirror iced_widget::button's own `disabled()` helper: scale both
@@ -88,7 +93,7 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
                 .color(palette.fg)
                 .width(Length::Fill)
                 .wrapping(iced::widget::text::Wrapping::WordOrGlyph),
-            button(row![icons::folder(palette.fg), text("Browse")].spacing(6)).style(btn_style).on_press(Message::PickOutput),
+            button(row![icons::folder(palette.fg), text("Browse")].spacing(6)).padding([9, 14]).style(btn_style).on_press(Message::PickOutput),
         ]
         .spacing(10)
         .align_y(iced::alignment::Vertical::Center),

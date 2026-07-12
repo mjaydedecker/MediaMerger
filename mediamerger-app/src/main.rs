@@ -14,6 +14,7 @@ fn main() -> iced::Result {
                 application_id: "mediamerger".to_string(),
                 ..Default::default()
             },
+            icon: load_window_icon(),
             ..Default::default()
         })
         .theme(theme)
@@ -57,6 +58,13 @@ fn detect_accent_color() -> String {
         .and_then(state::parse_accent_name)
         .unwrap_or("#3584e4")
         .to_string()
+}
+
+fn load_window_icon() -> Option<window::Icon> {
+    let bytes = include_bytes!("../assets/app-icon/mediamerger-128.png");
+    let image = image::load_from_memory(bytes).ok()?.into_rgba8();
+    let (width, height) = image.dimensions();
+    window::icon::from_rgba(image.into_raw(), width, height).ok()
 }
 
 fn subscription(_state: &AppState) -> Subscription<Message> {

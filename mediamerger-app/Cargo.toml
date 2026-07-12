@@ -13,6 +13,7 @@ iced = { version = "0.14", features = ["tokio", "svg", "canvas"] }
 tokio = { version = "1", features = ["full"] }
 rfd = { version = "0.14", features = ["xdg-portal"] }
 dark-light = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [package.metadata.deb]
 name = "mediamerger"

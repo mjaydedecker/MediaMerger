@@ -42,3 +42,19 @@ pub fn sparkle(color: Color) -> Element<'static, Message> {
 pub fn layers(color: Color) -> Element<'static, Message> {
     icon(include_bytes!("../../assets/icons/layers.svg"), color)
 }
+
+pub fn info(color: Color) -> Element<'static, Message> {
+    icon(include_bytes!("../../assets/icons/info.svg"), color)
+}
+
+pub fn edit(color: Color) -> Element<'static, Message> {
+    icon(include_bytes!("../../assets/icons/edit.svg"), color)
+}
+
+pub fn undo(color: Color) -> Element<'static, Message> {
+    icon(include_bytes!("../../assets/icons/undo.svg"), color)
+}
+
+pub fn refresh(color: Color) -> Element<'static, Message> {
+    icon(include_bytes!("../../assets/icons/refresh.svg"), color)
+}

@@ -110,3 +110,7 @@ Two-crate Rust workspace:
 Issues and pull requests are welcome. If you're changing anything in
 `mediamerger-core`, please add tests — the offset-detection and muxing
 logic in particular is expected to stay well covered.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

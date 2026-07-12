@@ -139,7 +139,7 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
 
     let footer_bg = palette.headerbar;
     let separator_color = palette.separator;
-    let mut footer = column![row![output_row, merge_column].spacing(16)].spacing(10);
+    let mut footer = column![row![output_row, merge_column].spacing(16).align_y(iced::alignment::Vertical::Center)].spacing(10);
 
     if !state.missing_binaries.is_empty() {
         footer = footer.push(row![icons::warning(palette.danger_fg), text(format!("Missing required tools: {}", state.missing_binaries.join(", "))).color(palette.danger_fg)].spacing(8));

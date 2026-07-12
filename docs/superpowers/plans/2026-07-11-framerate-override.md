@@ -98,6 +98,27 @@ git commit -m "Add framerate_override state and gate blocking_reason on it"
 
 ---
 
+**Addendum (found during Task 1 implementation):** adding `FramerateOverrideToggled`
+to the `Message` enum immediately breaks `main.rs`'s exhaustive `match message { ... }`
+in `update()` — Rust requires every variant handled, so `mediamerger-app` cannot
+compile with the new variant present and unhandled. Task 1's commit therefore
+also includes the minimal match arm in `main.rs`:
+
+```rust
+        Message::FramerateOverrideToggled(v) => {
+            state.framerate_override = v;
+            Task::none()
+        }
+```
+
+This is the same code Task 2 Step 1 below specifies (placement in the match
+differs slightly — trailing, near `ToggleLogExpanded`, rather than right
+after `FileBProbed` — but is otherwise identical and correct). **Task 2's
+Step 1 is therefore already done** as of Task 1's commit; Task 2 should
+verify it rather than re-add it, and focus on Steps 2-4.
+
+---
+
 ### Task 2: Wire the override into `main.rs`'s update loop and probe-result reset
 
 **Files:**

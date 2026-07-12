@@ -13,8 +13,17 @@ fn segment(label: &'static str, active: bool, on_press: Message, palette: &Palet
 }
 
 fn segment_divider(color: iced::Color) -> Element<'static, Message> {
-    rule::vertical(1)
-        .style(move |_theme| rule::Style { color, radius: 0.0.into(), fill_mode: rule::FillMode::Full, snap: false })
+    // rule::vertical hardcodes its length (height) to Length::Fill with no
+    // way to override it - inside this app's scrollable-wrapped content,
+    // that Fill can resolve against an effectively unbounded height several
+    // layout levels up, rather than just matching this row's own sibling
+    // buttons. Use a fixed-size colored container instead, the same
+    // technique already proven safe for the waveform bars in
+    // offset_panel.rs, rather than relying on Rule's Fill sizing here.
+    container(text(""))
+        .width(Length::Fixed(1.0))
+        .height(Length::Fixed(30.0))
+        .style(move |_theme| container::Style { background: Some(color.into()), ..Default::default() })
         .into()
 }
 

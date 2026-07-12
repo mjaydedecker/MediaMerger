@@ -367,6 +367,10 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 Task::none()
             }
         },
+        Message::FramerateOverrideToggled(v) => {
+            state.framerate_override = v;
+            Task::none()
+        }
         Message::ToggleLogExpanded => {
             state.log_expanded = !state.log_expanded;
             Task::none()

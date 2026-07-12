@@ -59,6 +59,7 @@ pub struct AppState {
     pub tracks_a_ui: Vec<TrackUiState>,
     pub tracks_b_ui: Vec<TrackUiState>,
     pub framerate_error: Option<MergerError>,
+    pub framerate_override: bool,
     pub is_dark: bool,
     pub accent_hex: String,
     pub offset: OffsetState,
@@ -89,6 +90,7 @@ impl Default for AppState {
             tracks_a_ui: Vec::new(),
             tracks_b_ui: Vec::new(),
             framerate_error: None,
+            framerate_override: false,
             is_dark: crate::detect_is_dark(),
             accent_hex: crate::detect_accent_color(),
             offset: OffsetState::NotDetected,
@@ -119,6 +121,7 @@ pub enum Message {
     PickFileB,
     FileAProbed(Result<MediaFile, MergerError>),
     FileBProbed(Result<MediaFile, MergerError>),
+    FramerateOverrideToggled(bool),
     RefreshSystemTheme,
     SystemThemeDetected(bool, String),
     ToggleTrackA(usize),
@@ -170,7 +173,7 @@ impl AppState {
     /// confirmation" an Inconsistent result demands, regardless of the
     /// Consistency verdict that produced the pre-filled value.
     pub fn blocking_reason(&self) -> Option<String> {
-        if self.framerate_error.is_some() {
+        if self.framerate_error.is_some() && !self.framerate_override {
             return Some("video framerates do not match".to_string());
         }
         if let OffsetState::Detected(r) = &self.offset {
@@ -365,6 +368,14 @@ mod tests {
         let mut state = AppState::default();
         state.framerate_error = Some(MergerError::Probe("framerate mismatch".to_string()));
         assert!(state.blocking_reason().is_some());
+    }
+
+    #[test]
+    fn blocking_reason_none_when_framerate_error_overridden() {
+        let mut state = AppState::default();
+        state.framerate_error = Some(MergerError::Probe("framerate mismatch".to_string()));
+        state.framerate_override = true;
+        assert_eq!(state.blocking_reason(), None);
     }
 
     #[test]

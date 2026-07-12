@@ -64,7 +64,7 @@ fn file_card<'a>(
     let fg = palette.fg;
     let mut card = column![
         row![
-            text(label).size(13).color(palette.fg),
+            text(label).size(13).color(palette.fg).width(Length::Fill),
             button(row![icons::folder(palette.fg), text("Browse")].spacing(6))
                 .style(move |_theme, status| {
                     let base = button::Style { background: Some(btn_bg.into()), text_color: fg, ..Default::default() };

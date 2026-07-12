@@ -209,7 +209,7 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
         Message::OffsetDetected(result) => match result {
             Ok(r) => {
                 state.manual_offset_input = format!("{:.3}", r.offset);
-                state.last_detected = Some(r.clone());
+                state.last_detected = Some(r);
                 let (file_a, file_b) = (state.file_a.clone(), state.file_b.clone());
                 let (Some(file_a), Some(file_b)) = (file_a, file_b) else {
                     state.offset = state::OffsetState::Detected(r);
@@ -257,7 +257,7 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         Message::UseDetectedOffset => {
-            if let Some(r) = state.last_detected.clone() {
+            if let Some(r) = state.last_detected {
                 state.manual_offset_input = format!("{:.3}", r.offset);
                 state.offset = state::OffsetState::Detected(r);
             }
@@ -539,7 +539,7 @@ mod tests {
         state.offset = state::OffsetState::ManualOverride(9.999);
         state.manual_offset_input = "9.999".to_string();
 
-        update(&mut state, Message::UseDetectedOffset);
+        let _ = update(&mut state, Message::UseDetectedOffset);
 
         match state.offset {
             state::OffsetState::Detected(r) => assert_eq!(r.offset, 2.35),
@@ -554,7 +554,7 @@ mod tests {
         state.offset = state::OffsetState::ManualOverride(1.0);
         state.manual_offset_input = "1.000".to_string();
 
-        update(&mut state, Message::UseDetectedOffset);
+        let _ = update(&mut state, Message::UseDetectedOffset);
 
         match state.offset {
             state::OffsetState::ManualOverride(v) => assert_eq!(v, 1.0),
@@ -573,7 +573,7 @@ mod tests {
         state.attachments_a = false;
         state.offset = state::OffsetState::ManualOverride(5.0);
 
-        update(&mut state, Message::NewMerge);
+        let _ = update(&mut state, Message::NewMerge);
 
         assert!(state.file_a.is_none());
         assert!(state.output_path.is_none());
@@ -591,7 +591,7 @@ mod tests {
         let (_tx, rx) = tokio::sync::mpsc::unbounded_channel::<state::MuxUiEvent>();
         state.merge_receiver = Some(std::sync::Arc::new(tokio::sync::Mutex::new(rx)));
 
-        update(&mut state, Message::NewMerge);
+        let _ = update(&mut state, Message::NewMerge);
 
         assert!(state.file_a.is_some(), "state must not reset while a merge is in flight");
     }

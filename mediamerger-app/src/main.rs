@@ -463,6 +463,19 @@ fn apply_probe_result(
                 AppState::sync_track_ui_len(&media_file.tracks, &mut state.tracks_b_ui);
                 state.file_b = Some(media_file);
             }
+            // A new file (either side) invalidates any previously detected
+            // or entered offset - it was measured for a DIFFERENT pairing
+            // and means nothing for this one. Without this reset,
+            // status_banner's last_detected check (which runs before it
+            // even looks at state.offset) would keep rendering the OLD
+            // result - e.g. a stale "Measurements disagree" banner - on
+            // top of "Detecting offset..." indefinitely, since nothing
+            // ever cleared it.
+            state.offset = state::OffsetState::NotDetected;
+            state.last_detected = None;
+            state.waveform = None;
+            state.manual_offset_input = String::new();
+            state.detect_offset_error = None;
             state.framerate_error = None;
             if let (Some(a), Some(b)) = (&state.file_a, &state.file_b) {
                 if let Err(e) = mediamerger_core::probe::check_framerate(&a.path, &b.path) {
@@ -552,6 +565,42 @@ mod tests {
         apply_probe_result(&mut state, Ok(media_file("/videos/Movie.2024.mkv")), true);
 
         assert_eq!(state.output_path, Some(PathBuf::from("/custom/chosen-by-user.mkv")));
+    }
+
+    #[test]
+    fn apply_probe_result_clears_stale_offset_state_when_either_file_changes() {
+        let mut state = AppState::default();
+        let stale = mediamerger_core::offset::OffsetResult {
+            early_offset: 2.0,
+            late_offset: 3.0,
+            consistency: mediamerger_core::offset::Consistency::Inconsistent,
+            confidence: 1.0,
+            offset: 2.5,
+            early_window_start: 0.0,
+            window_duration: 180.0,
+        };
+        state.offset = state::OffsetState::Detected(stale);
+        state.last_detected = Some(stale);
+        state.waveform = Some(mediamerger_core::offset::WaveformEnvelope {
+            bars_a: vec![0.5],
+            bars_b: vec![0.5],
+            window_start_secs: 0.0,
+            window_duration_secs: 180.0,
+        });
+        state.manual_offset_input = "2.500".to_string();
+        state.detect_offset_error = Some("boom".to_string());
+
+        // Re-picking File B (a different pairing) must invalidate the old
+        // detection entirely - otherwise status_banner's last_detected
+        // check would keep rendering the stale "Measurements disagree"
+        // banner over "Detecting offset..." forever.
+        apply_probe_result(&mut state, Ok(media_file("/videos/OtherMovie.mkv")), false);
+
+        assert!(matches!(state.offset, state::OffsetState::NotDetected));
+        assert!(state.last_detected.is_none());
+        assert!(state.waveform.is_none());
+        assert_eq!(state.manual_offset_input, "");
+        assert!(state.detect_offset_error.is_none());
     }
 
     #[test]

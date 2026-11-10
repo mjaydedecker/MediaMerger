@@ -6,15 +6,27 @@ use iced::widget::{button, column, container, row, text, text_input};
 use iced::{Element, Length};
 use mediamerger_core::offset::{Consistency, WaveformEnvelope};
 
-/// Draws two dashed vertical guide lines over the waveform bar rows: one at
-/// the zero/aligned position, one at the detected offset's position.
-struct WaveformGuides {
+/// Height of one waveform lane, and the gap between the A and B lanes.
+const LANE_HEIGHT: f32 = 40.0;
+const LANE_GAP: f32 = 8.0;
+/// Height of the waveform block: two lanes plus the gap between them.
+const WAVEFORM_HEIGHT: f32 = LANE_HEIGHT * 2.0 + LANE_GAP;
+
+/// Draws both waveform lanes stretched to the available width, plus two
+/// dashed vertical guide lines: one at the zero/aligned position, one at
+/// the detected offset's position. Drawing bars and guides on the same
+/// canvas keeps the offset line aligned with the bars at any window width.
+struct Waveform<'a> {
+    bars_a: &'a [f32],
+    bars_b: &'a [f32],
     offset_fraction: f32,
+    color_a: iced::Color,
+    color_b: iced::Color,
     dim_color: iced::Color,
     accent_color: iced::Color,
 }
 
-impl canvas::Program<Message> for WaveformGuides {
+impl canvas::Program<Message> for Waveform<'_> {
     type State = ();
 
     fn draw(
@@ -26,18 +38,39 @@ impl canvas::Program<Message> for WaveformGuides {
         _cursor: iced::mouse::Cursor,
     ) -> Vec<canvas::Geometry> {
         let mut frame = canvas::Frame::new(renderer, bounds.size());
-        let dash_pattern = canvas::LineDash { segments: &[4.0, 4.0], offset: 0 };
 
+        // Each bar gets an equal slot across the full width; the bar fills
+        // two thirds of it (the design's 4px bar + 2px gap ratio), centred
+        // vertically in its lane.
+        let draw_lane = |frame: &mut canvas::Frame, bars: &[f32], lane_top: f32, color: iced::Color| {
+            if bars.is_empty() {
+                return;
+            }
+            let slot = bounds.width / bars.len() as f32;
+            let bar_width = (slot * 2.0 / 3.0).max(1.0);
+            for (i, &b) in bars.iter().enumerate() {
+                let height = (b.clamp(0.0, 1.0) * LANE_HEIGHT).max(2.0);
+                let top_left = iced::Point::new(i as f32 * slot, lane_top + (LANE_HEIGHT - height) / 2.0);
+                let size = iced::Size::new(bar_width, height);
+                let radius = (bar_width / 2.0).min(2.0);
+                frame.fill(&canvas::Path::rounded_rectangle(top_left, size, radius.into()), color);
+            }
+        };
+        draw_lane(&mut frame, self.bars_a, 0.0, self.color_a);
+        draw_lane(&mut frame, self.bars_b, LANE_HEIGHT + LANE_GAP, self.color_b);
+
+        let dash_pattern = canvas::LineDash { segments: &[4.0, 4.0], offset: 0 };
         let stroke_with = |color: iced::Color| {
             let mut stroke = canvas::Stroke::default().with_color(color).with_width(2.0);
             stroke.line_dash = dash_pattern;
             stroke
         };
 
-        let zero_line = canvas::Path::line(iced::Point::new(0.0, 0.0), iced::Point::new(0.0, bounds.height));
+        // Inset by half the stroke width so the zero line isn't clipped.
+        let zero_line = canvas::Path::line(iced::Point::new(1.0, 0.0), iced::Point::new(1.0, bounds.height));
         frame.stroke(&zero_line, stroke_with(self.dim_color));
 
-        let offset_x = bounds.width * self.offset_fraction.clamp(0.0, 1.0);
+        let offset_x = (bounds.width * self.offset_fraction.clamp(0.0, 1.0)).clamp(1.0, (bounds.width - 1.0).max(1.0));
         let offset_line = canvas::Path::line(iced::Point::new(offset_x, 0.0), iced::Point::new(offset_x, bounds.height));
         frame.stroke(&offset_line, stroke_with(self.accent_color));
 
@@ -148,33 +181,26 @@ fn status_banner<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Mess
     }
 }
 
-fn waveform_bars(envelope: &WaveformEnvelope, offset_secs: f64, palette: &Palette) -> Element<'static, Message> {
-    let bar_row = |bars: &[f32], color: iced::Color| -> Element<'static, Message> {
-        let mut r = row![].spacing(2);
-        for &b in bars {
-            let height = (b * 40.0).max(2.0);
-            r = r.push(
-                container(text(""))
-                    .width(Length::Fixed(4.0))
-                    .height(Length::Fixed(height))
-                    .style(move |_theme| container::Style { background: Some(color.into()), ..Default::default() }),
-            );
-        }
-        r.into()
+fn waveform_bars<'a>(envelope: &'a WaveformEnvelope, offset_secs: f64, palette: &Palette) -> Element<'a, Message> {
+    let lane_label = |label: &'static str, color: iced::Color| {
+        container(text(label).size(12).color(color)).width(Length::Fixed(20.0)).height(Length::Fixed(LANE_HEIGHT)).center_x(Length::Fixed(20.0)).center_y(Length::Fixed(LANE_HEIGHT))
     };
+    let labels = column![lane_label("A", palette.accent_fg), lane_label("B", palette.dim)].spacing(LANE_GAP);
 
     let offset_fraction = (offset_secs / envelope.window_duration_secs).clamp(0.0, 1.0) as f32;
-    let guides = canvas(WaveformGuides { offset_fraction, dim_color: palette.dim, accent_color: palette.accent })
-        .width(Length::Fill)
-        .height(Length::Fixed(88.0));
+    let waveform = canvas(Waveform {
+        bars_a: &envelope.bars_a,
+        bars_b: &envelope.bars_b,
+        offset_fraction,
+        color_a: palette.accent,
+        color_b: palette.wave,
+        dim_color: palette.dim,
+        accent_color: palette.accent,
+    })
+    .width(Length::Fill)
+    .height(Length::Fixed(WAVEFORM_HEIGHT));
 
-    let bars_layer = column![
-        row![text("A").size(12).color(palette.accent_fg), bar_row(&envelope.bars_a, palette.accent)].spacing(8),
-        row![text("B").size(12).color(palette.dim), bar_row(&envelope.bars_b, palette.wave)].spacing(8),
-    ]
-    .spacing(8);
-
-    iced::widget::stack![bars_layer, guides].into()
+    row![labels, waveform].spacing(12).into()
 }
 
 pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> {
@@ -185,18 +211,55 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
     ]
     .spacing(15);
 
+    // The waveform arrives in a second background step after the offset
+    // result, so its slot is reserved from the moment detection starts.
+    // Otherwise the panel would grow mid-way through the user selecting
+    // tracks below it, shifting the rows under their cursor.
+    let detecting = matches!(state.offset, OffsetState::Detecting);
     if let (Some(envelope), Some(offset)) = (&state.waveform, state.resolved_offset_secs()) {
-        col = col.push(waveform_bars(envelope, offset, palette));
+        col = col.push(container(waveform_bars(envelope, offset, palette)).height(Length::Fixed(WAVEFORM_HEIGHT)));
+    } else if detecting || state.waveform_pending || state.last_detected.is_some() {
+        let hint = if detecting || state.waveform_pending { "Loading waveform…" } else { "Waveform preview unavailable" };
+        col = col.push(
+            container(text(hint).size(12).color(palette.faint))
+                .width(Length::Fill)
+                .height(Length::Fixed(WAVEFORM_HEIGHT))
+                .center_x(Length::Fill)
+                .center_y(Length::Fixed(WAVEFORM_HEIGHT)),
+        );
     }
 
     let manual_active = matches!(state.offset, OffsetState::ManualOverride(_));
+
+    // Borderless text button used for the "Use midpoint" / "Use detected"
+    // shortcuts next to the offset row.
+    let link_button = |icon: Element<'a, Message>, label: String, msg: Message| -> Element<'a, Message> {
+        let dim = palette.dim;
+        let fg = palette.fg;
+        button(row![icon, text(label).size(12).color(dim)].spacing(5))
+            .style(move |_theme, status| {
+                let base = button::Style { background: None, text_color: dim, ..Default::default() };
+                match status {
+                    button::Status::Hovered => button::Style { text_color: fg, ..base },
+                    _ => base,
+                }
+            })
+            .on_press(msg)
+            .into()
+    };
+
+    // Offered whenever it would change the current value - in practice an
+    // Inconsistent result (whose detected offset is the early measurement)
+    // or a manual value that differs from the midpoint.
+    let midpoint_button = state
+        .midpoint_offset_secs()
+        .filter(|_| state.midpoint_differs_from_current())
+        .map(|mid| link_button(icons::layers(palette.dim), format!("Use midpoint ({mid:.3}s)"), Message::UseMidpointOffset));
 
     let right_of_offset_row: Option<Element<Message>> = if manual_active {
         let accent = palette.accent;
         let accent_soft = palette.accent_soft;
         let accent_fg = palette.accent_fg;
-        let dim = palette.dim;
-        let fg = palette.fg;
 
         let pill = container(row![icons::edit(accent_fg), text("Manual override").size(11).color(accent_fg)].spacing(6))
             .padding([4, 10])
@@ -208,18 +271,11 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
 
         let mut controls = row![pill].spacing(10).align_y(iced::alignment::Vertical::Center);
 
+        if let Some(b) = midpoint_button {
+            controls = controls.push(b);
+        }
         if state.last_detected.is_some() {
-            controls = controls.push(
-                button(row![icons::undo(dim), text("Use detected").size(12).color(dim)].spacing(5))
-                    .style(move |_theme, status| {
-                        let base = button::Style { background: None, text_color: dim, ..Default::default() };
-                        match status {
-                            button::Status::Hovered => button::Style { text_color: fg, ..base },
-                            _ => base,
-                        }
-                    })
-                    .on_press(Message::UseDetectedOffset),
-            );
+            controls = controls.push(link_button(icons::undo(palette.dim), "Use detected".to_string(), Message::UseDetectedOffset));
         }
 
         Some(controls.into())
@@ -228,15 +284,18 @@ pub fn view<'a>(state: &'a AppState, palette: &Palette) -> Element<'a, Message> 
             OffsetState::Detected(r) if r.consistency != Consistency::Unverified => {
                 let quality = confidence_quality_label(r.confidence);
                 let color = if r.consistency == Consistency::Inconsistent { palette.danger_fg } else { palette.faint };
-                Some(
-                    text(format!(
-                        "Measured {:.3}s early · {:.3}s late · confidence {:.1} ({quality})",
-                        r.early_offset, r.late_offset, r.confidence
-                    ))
-                    .size(12)
-                    .color(color)
-                    .into(),
-                )
+                let mut controls = row![text(format!(
+                    "Measured {:.3}s early · {:.3}s late · confidence {:.1} ({quality})",
+                    r.early_offset, r.late_offset, r.confidence
+                ))
+                .size(12)
+                .color(color)]
+                .spacing(10)
+                .align_y(iced::alignment::Vertical::Center);
+                if let Some(b) = midpoint_button {
+                    controls = controls.push(b);
+                }
+                Some(controls.into())
             }
             _ => None,
         }

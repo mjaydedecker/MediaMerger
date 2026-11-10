@@ -76,6 +76,9 @@ pub struct AppState {
     pub offset: OffsetState,
     pub last_detected: Option<OffsetResult>,
     pub waveform: Option<WaveformEnvelope>,
+    /// True while a waveform extraction is in flight, so the panel can keep
+    /// its slot reserved (showing a loading hint) instead of collapsing.
+    pub waveform_pending: bool,
     pub manual_offset_input: String,
     pub detect_offset_error: Option<String>,
     pub chapters_choice: ChaptersChoice,
@@ -92,6 +95,8 @@ pub struct AppState {
     pub picking_file_a: bool,
     pub picking_file_b: bool,
     pub log_expanded: bool,
+    /// Last folder each picker was used in (File A / File B separately).
+    pub recent_dirs: crate::recent_dirs::RecentDirs,
 }
 
 impl Default for AppState {
@@ -109,12 +114,13 @@ impl Default for AppState {
             offset: OffsetState::NotDetected,
             last_detected: None,
             waveform: None,
+            waveform_pending: false,
             manual_offset_input: String::new(),
             detect_offset_error: None,
             chapters_choice: ChaptersChoice::FileA,
             attachments_a: true,
             attachments_b: false,
-            tags_a: false,
+            tags_a: true,
             tags_b: false,
             output_path: None,
             merge_progress: None,
@@ -125,6 +131,7 @@ impl Default for AppState {
             picking_file_a: false,
             picking_file_b: false,
             log_expanded: false,
+            recent_dirs: Default::default(),
         }
     }
 }
@@ -149,6 +156,8 @@ pub enum Message {
     WaveformExtracted(Result<WaveformEnvelope, MergerError>),
     ManualOffsetChanged(String),
     UseDetectedOffset,
+    /// Sets a manual offset halfway between the early and late measurements.
+    UseMidpointOffset,
     ChaptersChoiceChanged(ChaptersChoice),
     ToggleAttachmentsA(bool),
     ToggleAttachmentsB(bool),
@@ -171,8 +180,29 @@ pub struct TrackUiState {
 }
 
 impl AppState {
+    /// Fresh rows for a newly loaded File A: every track selected, since
+    /// the base file is normally kept whole. Flags start unset, as for B.
+    pub fn file_a_default_track_ui(tracks: &[mediamerger_core::probe::Track]) -> Vec<TrackUiState> {
+        tracks.iter().map(|_| TrackUiState { selected: true, ..Default::default() }).collect()
+    }
+
     pub fn sync_track_ui_len(tracks: &[mediamerger_core::probe::Track], ui: &mut Vec<TrackUiState>) {
         ui.resize_with(tracks.len(), TrackUiState::default);
+    }
+
+    /// Halfway point between the last detection's early and late
+    /// measurements, rounded to the millisecond precision the offset input
+    /// displays. None if nothing has been detected.
+    pub fn midpoint_offset_secs(&self) -> Option<f64> {
+        self.last_detected.map(|r| ((r.early_offset + r.late_offset) / 2.0 * 1000.0).round() / 1000.0)
+    }
+
+    /// True when "Use midpoint" would actually change the current offset.
+    pub fn midpoint_differs_from_current(&self) -> bool {
+        match (self.midpoint_offset_secs(), self.resolved_offset_secs()) {
+            (Some(mid), Some(current)) => (mid - current).abs() >= 0.0005,
+            _ => false,
+        }
     }
 
     pub fn resolved_offset_secs(&self) -> Option<f64> {
@@ -272,6 +302,22 @@ mod tests {
             is_hdr10: false,
             is_dolby_vision: false,
         }
+    }
+
+    #[test]
+    fn file_a_default_track_ui_selects_every_track_with_flags_unset() {
+        let tracks = vec![track(0, TrackKind::Video), track(1, TrackKind::Audio), track(2, TrackKind::Subtitle)];
+        let ui = AppState::file_a_default_track_ui(&tracks);
+        assert_eq!(ui.len(), 3);
+        assert!(ui.iter().all(|u| u.selected && !u.default_flag && !u.forced_flag));
+    }
+
+    #[test]
+    fn defaults_take_chapters_attachments_and_tags_from_file_a_only() {
+        let state = AppState::default();
+        assert_eq!(state.chapters_choice, ChaptersChoice::FileA);
+        assert!(state.attachments_a && !state.attachments_b);
+        assert!(state.tags_a && !state.tags_b);
     }
 
     #[test]

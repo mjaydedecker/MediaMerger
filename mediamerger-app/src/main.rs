@@ -2,12 +2,16 @@ use iced::{application, time, window, Element, Subscription, Task, Theme};
 use state::{AppState, Message};
 use std::time::Duration;
 
+mod recent_dirs;
 mod state;
 mod theme;
 mod ui;
 
 fn main() -> iced::Result {
-    application(|| (AppState::default(), Task::perform(check_binaries(), Message::BinariesChecked)), update, view)
+    // Loaded here rather than in AppState::default() so tests never read
+    // the user's real config file.
+    let initial_state = || AppState { recent_dirs: recent_dirs::RecentDirs::load(), ..AppState::default() };
+    application(move || (initial_state(), Task::perform(check_binaries(), Message::BinariesChecked)), update, view)
         .title("MediaMerger")
         .window(window::Settings {
             platform_specific: window::settings::PlatformSpecific {
@@ -108,24 +112,28 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 return Task::none();
             }
             state.picking_file_a = true;
-            Task::perform(pick_and_probe(), Message::FileAProbed)
+            Task::perform(pick_and_probe(state.recent_dirs.start_dir(true)), Message::FileAProbed)
         }
         Message::PickFileB => {
             if state.picking_file_b {
                 return Task::none();
             }
             state.picking_file_b = true;
-            Task::perform(pick_and_probe(), Message::FileBProbed)
+            Task::perform(pick_and_probe(state.recent_dirs.start_dir(false)), Message::FileBProbed)
         }
 
         Message::FileAProbed(result) => {
             state.picking_file_a = false;
-            apply_probe_result(state, result, true);
+            if apply_probe_result(state, result, true) {
+                state.recent_dirs.save();
+            }
             Task::none()
         }
         Message::FileBProbed(result) => {
             state.picking_file_b = false;
-            apply_probe_result(state, result, false);
+            if apply_probe_result(state, result, false) {
+                state.recent_dirs.save();
+            }
             Task::none()
         }
 
@@ -233,6 +241,8 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 };
                 let (start, duration) = (r.early_window_start, r.window_duration);
                 state.offset = state::OffsetState::Detected(r);
+                state.waveform = None;
+                state.waveform_pending = true;
                 Task::perform(
                     async move {
                         tokio::task::spawn_blocking(move || {
@@ -255,6 +265,7 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             // error - the offset itself already succeeded and is fully
             // usable without this supplementary visualization.
             state.waveform = result.ok();
+            state.waveform_pending = false;
             Task::none()
         }
         Message::ManualOffsetChanged(text) => {
@@ -268,6 +279,13 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if let Some(r) = state.last_detected {
                 state.manual_offset_input = format!("{:.3}", r.offset);
                 state.offset = state::OffsetState::Detected(r);
+            }
+            Task::none()
+        }
+        Message::UseMidpointOffset => {
+            if let Some(mid) = state.midpoint_offset_secs() {
+                state.manual_offset_input = format!("{mid:.3}");
+                state.offset = state::OffsetState::ManualOverride(mid);
             }
             Task::none()
         }
@@ -403,7 +421,9 @@ fn update(state: &mut AppState, message: Message) -> Task<Message> {
             let is_dark = state.is_dark;
             let accent_hex = state.accent_hex.clone();
             let missing_binaries = state.missing_binaries.clone();
+            let recent_dirs = std::mem::take(&mut state.recent_dirs);
             *state = AppState::default();
+            state.recent_dirs = recent_dirs;
             state.is_dark = is_dark;
             state.accent_hex = accent_hex;
             state.missing_binaries = missing_binaries;
@@ -425,11 +445,14 @@ fn poll_merge_event(state: &AppState) -> Task<Message> {
     )
 }
 
-async fn pick_and_probe() -> Result<mediamerger_core::probe::MediaFile, mediamerger_core::error::MergerError> {
-    let handle = rfd::AsyncFileDialog::new()
-        .add_filter("Video files", &["mkv", "mp4", "avi", "mov", "m4v", "webm"])
-        .pick_file()
-        .await;
+async fn pick_and_probe(
+    start_dir: Option<std::path::PathBuf>,
+) -> Result<mediamerger_core::probe::MediaFile, mediamerger_core::error::MergerError> {
+    let mut dialog = rfd::AsyncFileDialog::new().add_filter("Video files", &["mkv", "mp4", "avi", "mov", "m4v", "webm"]);
+    if let Some(dir) = start_dir {
+        dialog = dialog.set_directory(dir);
+    }
+    let handle = dialog.pick_file().await;
 
     let path = match handle {
         Some(h) => h.path().to_path_buf(),
@@ -445,13 +468,17 @@ fn apply_probe_result(
     state: &mut AppState,
     result: Result<mediamerger_core::probe::MediaFile, mediamerger_core::error::MergerError>,
     is_file_a: bool,
-) {
+) -> bool {
     state.framerate_override = false;
+    let mut recent_dirs_changed = false;
     match result {
         Ok(media_file) => {
             state.probe_error = None;
+            recent_dirs_changed = state.recent_dirs.remember(&media_file.path, is_file_a);
             if is_file_a {
-                AppState::sync_track_ui_len(&media_file.tracks, &mut state.tracks_a_ui);
+                // A new File A gets fresh all-selected rows rather than
+                // inheriting row-by-row selections made for a different file.
+                state.tracks_a_ui = AppState::file_a_default_track_ui(&media_file.tracks);
                 // Only fill in a default - never override a path the user
                 // already chose (via Browse, or a default from an earlier
                 // File A that they've since customized).
@@ -474,6 +501,7 @@ fn apply_probe_result(
             state.offset = state::OffsetState::NotDetected;
             state.last_detected = None;
             state.waveform = None;
+            state.waveform_pending = false;
             state.manual_offset_input = String::new();
             state.detect_offset_error = None;
             state.framerate_error = None;
@@ -492,6 +520,7 @@ fn apply_probe_result(
         // already set from a prior successful pairing stays valid as-is.
         Err(e) => state.probe_error = Some(e),
     }
+    recent_dirs_changed
 }
 
 fn first_audio_track_id(file: &mediamerger_core::probe::MediaFile) -> Option<u64> {
@@ -587,6 +616,7 @@ mod tests {
             window_start_secs: 0.0,
             window_duration_secs: 180.0,
         });
+        state.waveform_pending = true;
         state.manual_offset_input = "2.500".to_string();
         state.detect_offset_error = Some("boom".to_string());
 
@@ -599,6 +629,7 @@ mod tests {
         assert!(matches!(state.offset, state::OffsetState::NotDetected));
         assert!(state.last_detected.is_none());
         assert!(state.waveform.is_none());
+        assert!(!state.waveform_pending);
         assert_eq!(state.manual_offset_input, "");
         assert!(state.detect_offset_error.is_none());
     }
@@ -637,6 +668,17 @@ mod tests {
             state.framerate_error.is_some(),
             "file_a/file_b are untouched on a probe failure, so an already-valid framerate mismatch must stay reported"
         );
+    }
+
+    #[test]
+    fn apply_probe_result_remembers_folder_per_side_and_only_on_success() {
+        let mut state = AppState::default();
+        assert!(apply_probe_result(&mut state, Ok(media_file("/media/movies/Film.mkv")), true));
+        assert!(apply_probe_result(&mut state, Ok(media_file("/media/rips/Film.mkv")), false));
+        assert!(!apply_probe_result(&mut state, Ok(media_file("/media/movies/Other.mkv")), true));
+        assert!(!apply_probe_result(&mut state, Err(mediamerger_core::error::MergerError::Probe("no file selected".to_string())), false));
+        assert_eq!(state.recent_dirs.base, Some(std::path::PathBuf::from("/media/movies")));
+        assert_eq!(state.recent_dirs.donor, Some(std::path::PathBuf::from("/media/rips")));
     }
 
     #[test]
@@ -689,11 +731,46 @@ mod tests {
     }
 
     #[test]
+    fn use_midpoint_offset_sets_manual_override_halfway_between_measurements() {
+        let mut state = AppState::default();
+        let detected = mediamerger_core::offset::OffsetResult {
+            early_offset: 2.0,
+            late_offset: 3.0,
+            consistency: mediamerger_core::offset::Consistency::Inconsistent,
+            confidence: 4.0,
+            offset: 2.0,
+            early_window_start: 0.0,
+            window_duration: 180.0,
+        };
+        state.last_detected = Some(detected);
+        state.offset = state::OffsetState::Detected(detected);
+        assert!(state.midpoint_differs_from_current());
+
+        let _ = update(&mut state, Message::UseMidpointOffset);
+
+        match state.offset {
+            state::OffsetState::ManualOverride(v) => assert_eq!(v, 2.5),
+            _ => panic!("expected a ManualOverride at the midpoint"),
+        }
+        assert_eq!(state.manual_offset_input, "2.500");
+        assert!(!state.midpoint_differs_from_current());
+    }
+
+    #[test]
+    fn use_midpoint_offset_is_noop_when_nothing_was_ever_detected() {
+        let mut state = AppState::default();
+        let _ = update(&mut state, Message::UseMidpointOffset);
+        assert!(matches!(state.offset, state::OffsetState::NotDetected));
+        assert_eq!(state.manual_offset_input, "");
+    }
+
+    #[test]
     fn new_merge_resets_state_but_preserves_environment_fields() {
         let mut state = AppState::default();
         state.is_dark = true;
         state.accent_hex = "#123456".to_string();
         state.missing_binaries = vec!["ffmpeg"];
+        state.recent_dirs.base = Some(PathBuf::from("/media/movies"));
         state.file_a = Some(media_file("a.mkv"));
         state.output_path = Some(PathBuf::from("out.mkv"));
         state.attachments_a = false;
@@ -708,6 +785,7 @@ mod tests {
         assert!(state.is_dark, "is_dark must survive the reset");
         assert_eq!(state.accent_hex, "#123456");
         assert_eq!(state.missing_binaries, vec!["ffmpeg"]);
+        assert_eq!(state.recent_dirs.base, Some(PathBuf::from("/media/movies")), "remembered folders must survive the reset");
     }
 
     #[test]

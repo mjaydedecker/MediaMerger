@@ -55,13 +55,13 @@ Prebuilt `.deb` and `.rpm` packages are attached to each
 ### Debian/Ubuntu
 
 ```bash
-sudo apt install ./mediamerger_0.1.0-1_amd64.deb
+sudo apt install ./mediamerger_*_amd64.deb
 ```
 
 ### Fedora/openSUSE
 
 ```bash
-sudo rpm -i mediamerger-app-0.1.0-1.x86_64.rpm
+sudo rpm -i mediamerger-app-*.x86_64.rpm
 ```
 
 Either package also installs the `.desktop` entry and app icon into the
